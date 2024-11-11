@@ -16,7 +16,7 @@ void vga_clear_screen() {
     _set_cursor_offset(_get_offset(0, 0));
 }
 
-void vga_printk(const char *str) {
+void vga_print(const char *str) {
     u16_t offset = _get_cursor_offset();
     
     for (int i = 0; str[i] != 0; i++) {

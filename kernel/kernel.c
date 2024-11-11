@@ -2,5 +2,5 @@
 
 void main() {
     vga_clear_screen();
-    vga_printk("GIOS");
+    vga_print("GIOS");
 }

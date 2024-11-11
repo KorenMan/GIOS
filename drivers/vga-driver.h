@@ -15,4 +15,4 @@
 #define OFFSET_HIGH 0x0E
 
 void vga_clear_screen();
-void vga_printk(const char *str);
+void vga_print(const char *str);
