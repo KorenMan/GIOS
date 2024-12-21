@@ -1,21 +1,20 @@
-# $@ = target file
-# $< = first dependency
-# $^ = all dependencies
-
 # First rule is the one executed when no parameters are fed to the Makefile
 all: run
 
 # Directories
 SRC_DIR = kernel
 DRIVER_DIR = drivers
-OBJ_DIR = obj
+LIB_DIR = libraries/types
+CPU_DIR = cpu
 
-# Find all C source files in the driver and kernel directories
-DRIVER_SOURCES = $(wildcard $(DRIVER_DIR)/*.c)
+# Find all C source files in the kernel, driver, library, and CPU directories
 KERNEL_SOURCES = $(wildcard $(SRC_DIR)/*.c)
+DRIVER_SOURCES = $(wildcard $(DRIVER_DIR)/*.c)
+LIB_SOURCES = $(wildcard $(LIB_DIR)/*.c)
+CPU_SOURCES = $(wildcard $(CPU_DIR)/*.c)
 
 # Combine all source files
-SOURCES = $(KERNEL_SOURCES) $(DRIVER_SOURCES)
+SOURCES = $(KERNEL_SOURCES) $(DRIVER_SOURCES) $(LIB_SOURCES) $(CPU_SOURCES)
 
 # Define object files corresponding to the source files
 OBJECTS = $(SOURCES:.c=.o)
@@ -46,4 +45,4 @@ run: os-image.bin
 
 # Clean up generated files
 clean:
-	rm -f kernel/*.o drivers/*.o *.o kernel-entry.o mbr.bin kernel.bin os-image.bin
+	rm -f kernel/*.o drivers/*.o libraries/types/*.o cpu/*.o *.o kernel-entry.o mbr.bin kernel.bin os-image.bin

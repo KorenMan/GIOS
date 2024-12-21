@@ -1,0 +1,44 @@
+CC = gcc
+CFLAGS = -m32 -ffreestanding -nostdlib -nostartfiles -nodefaultlibs
+AS = nasm
+ASFLAGS = -f elf
+
+# Directories
+SRC_DIR = kernel
+LIB_DIR = lib
+CPU_DIR = cpu
+BUILD_DIR = build
+
+# Source files
+KERNEL_SRC = $(wildcard $(SRC_DIR)/*.c)
+LIB_SRC = $(wildcard $(LIB_DIR)/*.c)
+CPU_SRC = $(wildcard $(CPU_DIR)/*.c)
+
+# Object files
+OBJS = $(patsubst %.c,$(BUILD_DIR)/%.o,$(notdir $(KERNEL_SRC) $(LIB_SRC) $(CPU_SRC)))
+
+# Output
+KERNEL_BIN = kernel.bin
+
+# Rules
+all: $(KERNEL_BIN)
+
+$(KERNEL_BIN): $(OBJS)
+	$(CC) $(CFLAGS) -T linker.ld -o $@ $^
+
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/%.o: $(LIB_DIR)/%.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/%.o: $(CPU_DIR)/%.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR):
+	mkdir -p $(BUILD_DIR)
+
+clean:
+	rm -rf $(BUILD_DIR) $(KERNEL_BIN)
+
+.PHONY: all clean
