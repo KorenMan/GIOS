@@ -1,4 +1,4 @@
-#include "ports.h"
+#include "../lib/ports.h"
 #include "vga-driver.h"
 
 static inline u16_t _get_offset(u8_t row, u8_t column);
