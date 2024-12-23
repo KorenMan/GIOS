@@ -15,5 +15,5 @@ typdef struct {
     u32_t base;
 } __attribute__((packed)) idt_ptr_t;
 
-void init_idt();
-void set_idt_gate(u8_t n, u32_t base, u16_t selector, u8_t attr);
+void idt_init();
+void idt_set_gate(u8_t n, u32_t base, u16_t selector, u8_t attr);

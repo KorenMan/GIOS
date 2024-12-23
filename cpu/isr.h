@@ -51,5 +51,12 @@ extern void irq13();
 extern void irq14();
 extern void irq15();
 
+typdef struct {
+    u32_t ds;
+    u32_t edi, esi, ebp, esp, ebx, edx, ecx, eax;
+    u32_t int_number, err_code;
+    u32_t eip, cs, eflags, useresp, ss;
+} registers_t
+
 void isr_install();
 void isr_handler();

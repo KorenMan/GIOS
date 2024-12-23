@@ -1,80 +1,8 @@
 #include "isr.h"
 #include "idt.h"
 #include "../lib/ports.h"
+#include "../drivers/vga-driver.h"
 
-void isr_install() {
-    set_idt_gate(0, (u32)isr0);
-    set_idt_gate(1, (u32)isr1);
-    set_idt_gate(2, (u32)isr2);
-    set_idt_gate(3, (u32)isr3);
-    set_idt_gate(4, (u32)isr4);
-    set_idt_gate(5, (u32)isr5);
-    set_idt_gate(6, (u32)isr6);
-    set_idt_gate(7, (u32)isr7);
-    set_idt_gate(8, (u32)isr8);
-    set_idt_gate(9, (u32)isr9);
-    set_idt_gate(10, (u32)isr10);
-    set_idt_gate(11, (u32)isr11);
-    set_idt_gate(12, (u32)isr12);
-    set_idt_gate(13, (u32)isr13);
-    set_idt_gate(14, (u32)isr14);
-    set_idt_gate(15, (u32)isr15);
-    set_idt_gate(16, (u32)isr16);
-    set_idt_gate(17, (u32)isr17);
-    set_idt_gate(18, (u32)isr18);
-    set_idt_gate(19, (u32)isr19);
-    set_idt_gate(20, (u32)isr20);
-    set_idt_gate(21, (u32)isr21);
-    set_idt_gate(22, (u32)isr22);
-    set_idt_gate(23, (u32)isr23);
-    set_idt_gate(24, (u32)isr24);
-    set_idt_gate(25, (u32)isr25);
-    set_idt_gate(26, (u32)isr26);
-    set_idt_gate(27, (u32)isr27);
-    set_idt_gate(28, (u32)isr28);
-    set_idt_gate(29, (u32)isr29);
-    set_idt_gate(30, (u32)isr30);
-    set_idt_gate(31, (u32)isr31);
-
-    // Remap the PIC
-    port_byte_out(0x20, 0x11);
-    port_byte_out(0xA0, 0x11);
-
-    port_byte_out(0x21, 0x20);
-    port_byte_out(0xA1, 0x28);
-
-    port_byte_out(0x21, 0x04);
-    port_byte_out(0xA1, 0x02);
-
-    port_byte_out(0x21, 0x01);
-    port_byte_out(0xA1, 0x01);
-
-    port_byte_out(0x21, 0x0);
-    port_byte_out(0xA1, 0x0); 
-
-    // Install the IRQs
-    set_idt_gate(32, (u32)irq0);
-    set_idt_gate(33, (u32)irq1);
-    set_idt_gate(34, (u32)irq2);
-    set_idt_gate(35, (u32)irq3);
-    set_idt_gate(36, (u32)irq4);
-    set_idt_gate(37, (u32)irq5);
-    set_idt_gate(38, (u32)irq6);
-    set_idt_gate(39, (u32)irq7);
-    
-    set_idt_gate(40, (u32)irq8);
-    set_idt_gate(41, (u32)irq9);
-    set_idt_gate(42, (u32)irq10);
-    set_idt_gate(43, (u32)irq11);
-    set_idt_gate(44, (u32)irq12);
-    set_idt_gate(45, (u32)irq13);
-    set_idt_gate(46, (u32)irq14);
-    set_idt_gate(47, (u32)irq15);
-
-    init_idt();
-}
-
-// reserved exceptions
 char *exception_messages[] = {
     "Division by zero",
     "Single-step interrupt",
@@ -110,31 +38,98 @@ char *exception_messages[] = {
     "Reserved",
 };
 
-// take a look at !!!!!!!!!!!!!!!!!!!!!!!!
-void isr_handler(registers_t r) {
-    kprint("received interrupt: ");
-    char s[3];
-    int_to_ascii(r.int_no, s);
-    kprint(s);
-    kprint("\n");
-    kprint(exception_messages[r.int_no]);
-    kprint("\n");
+/* =============================== Public Functions =============================== */
+
+void isr_install() {
+    idt_set_gate(0, (u32_t)isr0);
+    idt_set_gate(1, (u32_t)isr1);
+    idt_set_gate(2, (u32_t)isr2);
+    idt_set_gate(3, (u32_t)isr3);
+    idt_set_gate(4, (u32_t)isr4);
+    idt_set_gate(5, (u32_t)isr5);
+    idt_set_gate(6, (u32_t)isr6);
+    idt_set_gate(7, (u32_t)isr7);
+    idt_set_gate(8, (u32_t)isr8);
+    idt_set_gate(9, (u32_t)isr9);
+    idt_set_gate(10, (u32_t)isr10);
+    idt_set_gate(11, (u32_t)isr11);
+    idt_set_gate(12, (u32_t)isr12);
+    idt_set_gate(13, (u32_t)isr13);
+    idt_set_gate(14, (u32_t)isr14);
+    idt_set_gate(15, (u32_t)isr15);
+    idt_set_gate(16, (u32_t)isr16);
+    idt_set_gate(17, (u32_t)isr17);
+    idt_set_gate(18, (u32_t)isr18);
+    idt_set_gate(19, (u32_t)isr19);
+    idt_set_gate(20, (u32_t)isr20);
+    idt_set_gate(21, (u32_t)isr21);
+    idt_set_gate(22, (u32_t)isr22);
+    idt_set_gate(23, (u32_t)isr23);
+    idt_set_gate(24, (u32_t)isr24);
+    idt_set_gate(25, (u32_t)isr25);
+    idt_set_gate(26, (u32_t)isr26);
+    idt_set_gate(27, (u32_t)isr27);
+    idt_set_gate(28, (u32_t)isr28);
+    idt_set_gate(29, (u32_t)isr29);
+    idt_set_gate(30, (u32_t)isr30);
+    idt_set_gate(31, (u32_t)isr31);
+
+    // Remap the PIC 
+    port_byte_out(0x20, 0x11);
+    port_byte_out(0xA0, 0x11);
+
+    port_byte_out(0x21, 0x20);
+    port_byte_out(0xA1, 0x28);
+
+    port_byte_out(0x21, 0x04);
+    port_byte_out(0xA1, 0x02);
+
+    port_byte_out(0x21, 0x01);
+    port_byte_out(0xA1, 0x01);
+
+    port_byte_out(0x21, 0x0);
+    port_byte_out(0xA1, 0x0); 
+
+    // Install the IRQs
+    idt_set_gate(32, (u32_t)irq0);
+    idt_set_gate(33, (u32_t)irq1);
+    idt_set_gate(34, (u32_t)irq2);
+    idt_set_gate(35, (u32_t)irq3);
+    idt_set_gate(36, (u32_t)irq4);
+    idt_set_gate(37, (u32_t)irq5);
+    idt_set_gate(38, (u32_t)irq6);
+    idt_set_gate(39, (u32_t)irq7);
+    idt_set_gate(40, (u32_t)irq8);
+    idt_set_gate(41, (u32_t)irq9);
+    idt_set_gate(42, (u32_t)irq10);
+    idt_set_gate(43, (u32_t)irq11);
+    idt_set_gate(44, (u32_t)irq12);
+    idt_set_gate(45, (u32_t)irq13);
+    idt_set_gate(46, (u32_t)irq14);
+    idt_set_gate(47, (u32_t)irq15);
+
+    idt_init();
+}
+
+void isr_handler(registers_t* registers) {
+    if (regs->int_number < 32) {
+        vga_print("Exception\n")
+        vga_print(exception_messages[regs->int_number]);
+        while(1); // Halt
+    }
 }
 
 void register_interrupt_handler(u8 n, isr_t handler) {
     interrupt_handlers[n] = handler;
 }
 
-void irq_handler(registers_t r) {
-    /* After every interrupt we need to send an EOI to the PICs
-     * or they will not send another interrupt again */
-    if (r.int_no >= 40) port_byte_out(0xA0, 0x20); /* slave */
-    port_byte_out(0x20, 0x20); /* master */
+void irq_handler(registers_t* r) {
+    if (r->int_no >= 40) 
+        port_byte_out(0xA0, 0x20);
+    port_byte_out(0x20, 0x20);
 
-    /* Handle the interrupt in a more modular way */
-    if (interrupt_handlers[r.int_no] != 0) {
-        isr_t handler = interrupt_handlers[r.int_no];
+    if (interrupt_handlers[r->int_number] != 0) {
+        isr_t handler = interrupt_handlers[r->int_number];
         handler(r);
     }
 }
-
