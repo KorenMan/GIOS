@@ -9,8 +9,9 @@ extern void idt_flush(u32_t);
 
 void idt_init() {
     idt_ptr.limit = sizeof(idt_entry_t) * 256 - 1;
-    idt_ptr.base = &idt;
+    idt_ptr.base = (u32_t)&idt;
 
+    asm("lidtl (%0)" : : "r" (&idt_ptr));
 }   
 
 void idt_set_gate(u8_t n, u32_t base) {

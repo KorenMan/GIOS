@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../lib/types.h"
+
 // reserved for cpu exceptions
 extern void isr0();
 extern void isr1();
@@ -51,12 +53,14 @@ extern void irq13();
 extern void irq14();
 extern void irq15();
 
-typdef struct {
+typedef struct {
     u32_t ds;
     u32_t edi, esi, ebp, esp, ebx, edx, ecx, eax;
     u32_t int_number, err_code;
     u32_t eip, cs, eflags, useresp, ss;
-} registers_t
+} registers_t;
 
 void isr_install();
 void isr_handler();
+
+typedef void (* isr_t)(registers_t *);

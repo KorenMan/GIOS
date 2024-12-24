@@ -38,6 +38,8 @@ char *exception_messages[] = {
     "Reserved",
 };
 
+isr_t isr_map[256];
+
 /* =============================== Public Functions =============================== */
 
 void isr_install() {
@@ -112,24 +114,18 @@ void isr_install() {
 }
 
 void isr_handler(registers_t* registers) {
-    if (regs->int_number < 32) {
-        vga_print("Exception\n")
-        vga_print(exception_messages[regs->int_number]);
+    if (registers->int_number < 32) {
+        vga_print("Exception\n");
+        vga_print(exception_messages[registers->int_number]);
         while(1); // Halt
     }
 }
 
-void register_interrupt_handler(u8 n, isr_t handler) {
-    interrupt_handlers[n] = handler;
-}
-
-void irq_handler(registers_t* r) {
-    if (r->int_no >= 40) 
+void irq_handler(registers_t* registers) {
+    if (registers->int_number >= 40) 
         port_byte_out(0xA0, 0x20);
     port_byte_out(0x20, 0x20);
 
-    if (interrupt_handlers[r->int_number] != 0) {
-        isr_t handler = interrupt_handlers[r->int_number];
-        handler(r);
-    }
+    if (isr_map[registers->int_number] != 0)
+        isr_map[registers->int_number](registers);
 }
