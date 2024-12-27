@@ -1,6 +1,10 @@
 #include "../drivers/vga-driver.h"
+#include "../drivers/keyboard-driver.h"
 
 void main() {
     vga_clear_screen();
-    vga_print("GIOS");
+
+    // enabling interrupts
+    isr_install();
+    keyboard_init();
 }
