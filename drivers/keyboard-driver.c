@@ -30,6 +30,7 @@ void keyboard_callback(registers_t registers) {
         tick = 0;
         last_scancode = scancode;
     }
+
     if (scancode == 0x0E) {
         vga_backspace();
         return;
