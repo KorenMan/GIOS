@@ -18,7 +18,7 @@ start:
 bits 16
 load_kernel:
     mov bx, KERNEL_OFFSET ; where to store the data read from the disk 
-    mov dh, 0x10 ; number of sectors to read
+    mov dh, 0x16 ; number of sectors to read
     call disk_load
     ret
 
