@@ -20,16 +20,16 @@ void vga_print(const char *str) {
     u16_t offset = _get_cursor_offset();
     
     for (int i = 0; str[i] != 0; i++) {
-        if (_get_row(offset) >= SCREEN_HEIGHT) {
-            _scroll();
-            offset = _get_offset(SCREEN_HEIGHT - 1, 0);
-        }
-
         if (str[i] == '\n') {
             offset = _get_offset(_get_row(offset) + 1, 0);
         } else {
             _set_char_at(str[i], (offset * 2));
             offset++;
+        }
+
+        if (_get_row(offset) >= SCREEN_HEIGHT) {
+            _scroll();
+            offset = _get_offset(SCREEN_HEIGHT - 1, 0);
         }
     }
 
