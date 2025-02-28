@@ -12,12 +12,13 @@ void main() {
         vga_print("Failed to initialize ATA driver\n");
         return;
     }
+    
+    test_ata();
 
     // enabling interrupts
     isr_install();
     keyboard_init();
 
-    test_ata();
 
     while (1);
 }
