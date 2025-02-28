@@ -58,4 +58,4 @@ run: os-image.bin
 
 # Clean up generated files
 clean:
-	rm -f kernel/*.o drivers/*.o lib/*.o cpu/*.o *.o kernel-entry.o mbr.bin kernel.bin os-image.bin
+	rm -f kernel/*.o drivers/*.o lib/*.o cpu/*.o *.o tests/*.o kernel-entry.o mbr.bin kernel.bin os-image.bin
