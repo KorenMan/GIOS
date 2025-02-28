@@ -90,7 +90,7 @@ int ata_identify_drive(int bus, int drive, ata_device_info_t *info) {
     }
     
     // DEBUG
-    //ata_print_drive_info(info);
+    ata_print_drive_info(info);
     
     return 0;  // Success 
 }
@@ -146,7 +146,7 @@ void ata_print_drive_info(ata_device_info_t *info) {
 // Select a partition for subsequent operations 
 int ata_select_partition(u32_t start_lba, u32_t sector_count) {
     // Validate the partition 
-    if (start_lba + sector_count > ata_state.drives[0][0].lba28_sectors) {
+    if (sector_count > ata_state.drives[0][0].lba28_sectors) {
         return -1;  // Partition exceeds drive capacity 
     }
     
@@ -209,7 +209,7 @@ int ata_read_sectors(u32_t lba, int count, void *buffer) {
         _ata_insw(ata_state.io_base + ATA_DATA, buffer, 256);
         
         // Move buffer pointer 
-        buffer = (u8_t*)buffer + 512;
+        buffer = (u8_t *)buffer + 512;
     }
     
     return 0;  // Success 
@@ -401,7 +401,7 @@ static int _ata_process_error() {
 }
 
 // Get identify data from a drive 
-static u16_t* _ata_get_identify_data(int bus, int drive, u16_t* buffer) {
+static u16_t *_ata_get_identify_data(int bus, int drive, u16_t* buffer) {
     u8_t status, lba_mid, lba_hi;
     
     // Select the drive 
