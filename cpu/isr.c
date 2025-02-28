@@ -1,7 +1,7 @@
 #include "isr.h"
 #include "idt.h"
 #include "../lib/ports.h"
-#include "../drivers/vga-driver.h"
+#include "../drivers/vga.h"
 
 char *exception_messages[] = {
     "Division by zero",

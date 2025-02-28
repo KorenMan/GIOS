@@ -1,7 +1,7 @@
-#include "disk.h"
+#include "ata.h"
+#include "vga.h"
 #include "../lib/ports.h"
 #include "../lib/string.h"
-#include "../drivers/vga-driver.h"
 
 static void _ata_insw(u16_t port, void *addr, int count);
 static void _ata_outsw(u16_t port, void *addr, int count);
@@ -88,6 +88,9 @@ int ata_identify_drive(int bus, int drive, ata_device_info_t *info) {
     if (drive == 0 && (identify_data[93] & (1 << 11))) {
         info->cable_80_detected = 1;
     }
+    
+    // DEBUG
+    //ata_print_drive_info(info);
     
     return 0;  // Success 
 }
