@@ -1,5 +1,5 @@
-#include "keyboard.h"
-#include "vga.h"
+#include "keyboard-driver.h"
+#include "vga-driver.h"
 #include "../cpu/isr.h"
 #include "../lib/ports.h"
 #include "../lib/types.h"

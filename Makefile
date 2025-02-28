@@ -6,12 +6,14 @@ SRC_DIR = kernel
 DRIVER_DIR = drivers
 LIB_DIR = lib
 CPU_DIR = cpu
+TEST_DIR = tests
 
 # Find all C source files in the kernel, driver, library, CPU directories
 KERNEL_SOURCES = $(wildcard $(SRC_DIR)/*.c)
 DRIVER_SOURCES = $(wildcard $(DRIVER_DIR)/*.c)
 LIB_SOURCES = $(wildcard $(LIB_DIR)/*.c)
 CPU_SOURCES = $(wildcard $(CPU_DIR)/*.c)
+TEST_SOURCES = $(wildcard $(TEST_DIR)/*.c)
 
 # Find all assembly files in the kernel, driver, library, CPU directories
 KERNEL_ASM = $(wildcard $(SRC_DIR)/*.asm)
@@ -20,7 +22,7 @@ LIB_ASM = $(wildcard $(LIB_DIR)/*.asm)
 CPU_ASM = $(wildcard $(CPU_DIR)/*.asm)
 
 # Combine all source files
-SOURCES = $(KERNEL_SOURCES) $(DRIVER_SOURCES) $(LIB_SOURCES) $(CPU_SOURCES)
+SOURCES = $(KERNEL_SOURCES) $(DRIVER_SOURCES) $(LIB_SOURCES) $(CPU_SOURCES) $(TEST_SOURCES)
 ASM_SOURCES = $(KERNEL_ASM) $(DRIVER_ASM) $(LIB_ASM) $(CPU_ASM)
 
 # Define object files corresponding to the source files

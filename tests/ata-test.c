@@ -1,5 +1,5 @@
-#include "../drivers/vga.h"
-#include "../drivers/ata.h"
+#include "../drivers/vga-driver.h"
+#include "../drivers/ata-driver.h"
 #include "../lib/string.h"
 
 // Test buffer size (in sectors)
@@ -7,7 +7,7 @@
 #define SECTOR_SIZE 512
 
 // Test function to verify ATA write functionality
-void test_ata_write() {
+void test_ata() {
     // Test buffer for writing data (1024 bytes = 2 sectors)
     u8_t write_buffer[TEST_SECTOR_COUNT * SECTOR_SIZE];
     u8_t verify_buffer[TEST_SECTOR_COUNT * SECTOR_SIZE];

@@ -1,5 +1,5 @@
-#include "ata.h"
-#include "vga.h"
+#include "ata-driver.h"
+#include "vga-driver.h"
 #include "../lib/ports.h"
 #include "../lib/string.h"
 
