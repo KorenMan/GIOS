@@ -19,6 +19,5 @@ void main() {
     isr_install();
     keyboard_init();
 
-
     while (1);
 }
