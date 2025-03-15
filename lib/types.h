@@ -1,8 +1,10 @@
 #pragma once
 
+#define true 1
+#define false 0
+
 typedef unsigned char bool;
-typedef true 1;
-typedef false 0;
+
 
 typedef unsigned char u8_t; 
 typedef unsigned short u16_t;

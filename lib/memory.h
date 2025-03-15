@@ -11,10 +11,7 @@ typedef struct mem_block {
     bool in_use;
     struct mem_block *prev;
     struct mem_block *next;
-} mem_block_t {
-    .prev = NULL;
-    .next = NULL;
-};
+} mem_block_t;
 
 void mem_init(); 
 void *mem_alloc(u32_t size);
