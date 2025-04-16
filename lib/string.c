@@ -28,3 +28,24 @@ void int_to_hex_string(int num, char *str, int size) {
         str[k] = temp;
     }
 }
+
+char *str_chr(const char *str, int ch) {
+    while (*str) {
+        if (*str == (char)ch) {
+            return (char *)str;
+        }
+        str++;
+    }
+    if ((char)ch == '\0') {
+        return (char *)str;
+    }
+    return 0;
+}
+
+u32_t str_len(const char *str) {
+    u32_t len = 0;
+    while (str[len]) {
+        len++;
+    }
+    return len;
+}

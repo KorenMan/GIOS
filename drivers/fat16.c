@@ -487,7 +487,7 @@ bool fat16_is_valid_filename(const char *filename) {
     }
     
     // Check length
-    u32_t len = strlen(filename);
+    u32_t len = str_len(filename);
     if (len > 12) { // 8 for name + 1 for dot + 3 for extension
         return false;
     }
@@ -495,7 +495,7 @@ bool fat16_is_valid_filename(const char *filename) {
     // Check illegal characters
     const char *invalid_chars = "<>:\"/\\|?*";
     for (u32_t i = 0; i < len; i++) {
-        if (strchr(invalid_chars, filename[i]) || (unsigned char)filename[i] < 32) {
+        if (str_chr(invalid_chars, filename[i]) || (u8_t)filename[i] < 32) {
             return false;
         }
     }
@@ -533,8 +533,8 @@ int fat16_to_short_filename(const char *input, char *output) {
     output[11] = '\0';
     
     // Find the dot if present
-    const char *dot = strchr(input, '.');
-    u32_t name_len = dot ? (dot - input) : strlen(input);
+    const char *dot = str_chr(input, '.');
+    u32_t name_len = dot ? (dot - input) : str_len(input);
     
     // Copy the name (up to 8 characters)
     for (u32_t i = 0; i < name_len && i < 8; i++) {
@@ -623,8 +623,8 @@ int fat16_create_file(fat16_filesystem_t *fs, const char *filename, u8_t attribu
     mem_set(free_entry, 0, sizeof(fat16_dir_entry_t));
     
     // Parse the 8.3 filename
-    char *dot = strchr(short_name, '.');
-    int name_len = dot ? (dot - short_name) : strlen(short_name);
+    char *dot = str_chr(short_name, '.');
+    int name_len = dot ? (dot - short_name) : str_len(short_name);
     
     // Fill name part (padded with spaces)
     for (int i = 0; i < 8; i++) {
@@ -819,8 +819,8 @@ int fat16_rename_file(fat16_filesystem_t *fs, const char *old_name, const char *
     }
     
     // Parse the 8.3 filename
-    char *dot = strchr(short_name, '.');
-    int name_len = dot ? (dot - short_name) : strlen(short_name);
+    char *dot = str_chr(short_name, '.');
+    int name_len = dot ? (dot - short_name) : str_len(short_name);
     
     // Fill name part (padded with spaces)
     for (int i = 0; i < 8; i++) {
