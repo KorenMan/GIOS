@@ -2,7 +2,6 @@
 #include "../lib/string.h"
 #include "../lib/types.h"
 
-#define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define SECTOR_SIZE 512  // Standard sector size
 
 // Error codes
@@ -44,7 +43,7 @@ int fat16_init(fat16_filesystem_t *fs, void *device_data,
     fs->write_sector = write_sector;
     
     // Read the boot sector
-    if (read_sector(device_data, 0, (u8_t*)&fs->bpb, SECTOR_SIZE) < 0) {
+    if (read_sector(device_data, 0, (u8_t *)&fs->bpb, SECTOR_SIZE) < 0) {
         return FAT16_ERROR_IO;
     }
     
@@ -108,7 +107,7 @@ u16_t fat16_get_next_cluster(fat16_filesystem_t *fs, u16_t cluster) {
     }
     
     // Extract the FAT entry value
-    u16_t next_cluster = *(u16_t*)&sector_buffer[ent_offset];
+    u16_t next_cluster = *(u16_t *)&sector_buffer[ent_offset];
     
     return next_cluster;
 }
@@ -303,10 +302,10 @@ int fat16_write_file(fat16_file_t *file, const void *buffer, u32_t size) {
                     }
                     
                     // Use the read buffer directly (assumed to be stored in fs)
-                    memcpy((u8_t*)fs + sector_pos, data, sector_write);
+                    mem_cpy((u8_t *)fs + sector_pos, data, sector_write);
                 } else {
                     // For full sector writes, copy directly to the buffer
-                    memcpy((u8_t*)fs, data, sector_write);
+                    mem_cpy((u8_t *)fs, data, sector_write);
                 }
                 
                 // Write the sector back
@@ -343,7 +342,7 @@ int fat16_write_file(fat16_file_t *file, const void *buffer, u32_t size) {
                     
                     // Create a directory entry to update
                     fat16_dir_entry_t dir_entry;
-                    memset(&dir_entry, 0, sizeof(fat16_dir_entry_t));
+                    mem_set(&dir_entry, 0, sizeof(fat16_dir_entry_t));
                     
                     // Copy basic info from file
                     dir_entry.first_cluster = file->first_cluster;
@@ -366,7 +365,7 @@ int fat16_write_file(fat16_file_t *file, const void *buffer, u32_t size) {
         
         // Create a directory entry to update
         fat16_dir_entry_t dir_entry;
-        memset(&dir_entry, 0, sizeof(fat16_dir_entry_t));
+        mem_set(&dir_entry, 0, sizeof(fat16_dir_entry_t));
         
         // Copy basic info from file
         dir_entry.first_cluster = file->first_cluster;
@@ -866,7 +865,7 @@ static int _fat16_set_fat_entry(fat16_filesystem_t *fs, u16_t cluster, u16_t val
     }
     
     // Set the FAT entry value
-    *(u16_t*)&sector_buffer[ent_offset] = value;
+    *(u16_t *)&sector_buffer[ent_offset] = value;
     
     // Write the updated sector back
     if (_write_sector(fs, fat_sector) < 0) {
@@ -883,7 +882,7 @@ static int _fat16_set_fat_entry(fat16_filesystem_t *fs, u16_t cluster, u16_t val
         }
         
         // Set the FAT entry value
-        *(u16_t*)&sector_buffer[ent_offset] = value;
+        *(u16_t *)&sector_buffer[ent_offset] = value;
         
         // Write the updated sector back
         if (_write_sector(fs, second_fat_sector) < 0) {
