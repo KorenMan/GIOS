@@ -3,16 +3,16 @@
 #include "../lib/ports.h"
 #include "../lib/string.h"
 
-static void _ata_insw(u16_t port, void *addr, int count);
-static void _ata_outsw(u16_t port, void *addr, int count);
-static void _ata_400ns_delay();
-static int _ata_poll_status();
-static int _ata_select_drive(int bus, int drive);
-static void _ata_soft_reset();
-static void _ata_wait_not_busy();
-static void _ata_wait_ready();
-static int _ata_process_error();
-static u16_t *_ata_get_identify_data(int bus, int drive, u16_t *buffer);
+static void _insw(u16_t port, void *addr, int count);
+static void _outsw(u16_t port, void *addr, int count);
+static void _400ns_delay();
+static int _poll_status();
+static int _select_drive(int bus, int drive);
+static void _soft_reset();
+static void _wait_not_busy();
+static void _wait_ready();
+static int _process_error();
+static u16_t *_get_identify_data(int bus, int drive, u16_t *buffer);
 
 /* =============================== Public Functions =============================== */
 
@@ -32,7 +32,7 @@ int ata_init() {
     }
     
     // Select the primary master by default 
-    _ata_select_drive(0, 0);
+    _select_drive(0, 0);
     
     // Success 
     return 0;
@@ -53,7 +53,7 @@ int ata_identify_drive(int bus, int drive, ata_device_info_t *info) {
     info->cable_80_detected = 0;
     
     // Try to get identify data 
-    if (_ata_get_identify_data(bus, drive, identify_data) == 0) {
+    if (_get_identify_data(bus, drive, identify_data) == 0) {
         return -1;  // Drive does not exist or is not an ATA drive 
     }
     
@@ -180,10 +180,10 @@ int ata_read_sectors(u32_t lba, int count, void *buffer) {
     }
     
     // Select the correct drive (we use primary master for simplicity) 
-    _ata_select_drive(0, 0);
+    _select_drive(0, 0);
     
     // Wait for drive to be ready 
-    _ata_wait_ready();
+    _wait_ready();
     
     // Set up registers for the read operation 
     port_byte_out(ata_state.io_base + ATA_SECTOR_COUNT, count);
@@ -201,12 +201,12 @@ int ata_read_sectors(u32_t lba, int count, void *buffer) {
     // Read all the sectors 
     for (i = 0; i < count; i++) {
         // Wait for data to be ready 
-        if (_ata_poll_status() != 0) {
+        if (_poll_status() != 0) {
             return -4;  // Error during read 
         }
         
         // Read a sector (256 words = 512 bytes) 
-        _ata_insw(ata_state.io_base + ATA_DATA, buffer, 256);
+        _insw(ata_state.io_base + ATA_DATA, buffer, 256);
         
         // Move buffer pointer 
         buffer = (u8_t *)buffer + 512;
@@ -238,10 +238,10 @@ int ata_write_sectors(u32_t lba, int count, void *buffer) {
     }
     
     // Select the correct drive (we use primary master for simplicity) 
-    _ata_select_drive(0, 0);
+    _select_drive(0, 0);
     
     // Wait for drive to be ready 
-    _ata_wait_ready();
+    _wait_ready();
     
     // Set up registers for the write operation 
     port_byte_out(ata_state.io_base + ATA_SECTOR_COUNT, count);
@@ -259,12 +259,12 @@ int ata_write_sectors(u32_t lba, int count, void *buffer) {
     // Write all the sectors 
     for (i = 0; i < count; i++) {
         // Wait for drive to be ready to accept data 
-        if (_ata_poll_status() != 0) {
+        if (_poll_status() != 0) {
             return -4;  // Error preparing for write 
         }
         
         // Write a sector (256 words = 512 bytes) 
-        _ata_outsw(ata_state.io_base + ATA_DATA, buffer, 256);
+        _outsw(ata_state.io_base + ATA_DATA, buffer, 256);
         
         // Move buffer pointer 
         buffer = (u8_t*)buffer + 512;
@@ -272,7 +272,7 @@ int ata_write_sectors(u32_t lba, int count, void *buffer) {
         // Flush the write cache on the last sector 
         if (i == count - 1) {
             // The drive will set BSY again after receiving the last word 
-            _ata_wait_not_busy();
+            _wait_not_busy();
         }
     }
     
@@ -282,17 +282,17 @@ int ata_write_sectors(u32_t lba, int count, void *buffer) {
 /* =============================== Private Functions =============================== */
 
 // Input multiple words from ATA port 
-static void _ata_insw(u16_t port, void *addr, int count) {
+static void _insw(u16_t port, void *addr, int count) {
     asm ("rep insw" : "+D"(addr), "+c"(count) : "d"(port) : "memory");
 }
 
 // Output multiple words to ATA port 
-static void _ata_outsw(u16_t port, void *addr, int count) {
+static void _outsw(u16_t port, void *addr, int count) {
     asm ("rep outsw" : "+S"(addr), "+c"(count) : "d"(port) : "memory");
 }
 
 // Delay for approximately 400ns by reading the alternate status 
-static void _ata_400ns_delay() {
+static void _400ns_delay() {
     // Reading the alternate status register takes about 100ns
     port_byte_in(ata_state.control_base + ATA_ALT_STATUS);
     port_byte_in(ata_state.control_base + ATA_ALT_STATUS);
@@ -301,18 +301,18 @@ static void _ata_400ns_delay() {
 }
 
 // Poll the status register until an operation completes
-static int _ata_poll_status() {
+static int _poll_status() {
     u8_t status;
     
     // Wait for BSY to clear 
-    _ata_400ns_delay();  // Initial delay to allow status to update 
+    _400ns_delay();  // Initial delay to allow status to update 
     
     while ((port_byte_in(ata_state.io_base + ATA_STATUS) & ATA_STATUS_BSY));
     
     // Check for error conditions 
     status = port_byte_in(ata_state.io_base + ATA_STATUS);
     if (status & ATA_STATUS_ERR) {
-        return _ata_process_error();
+        return _process_error();
     }
 
     // Check for drive fault
@@ -329,7 +329,7 @@ static int _ata_poll_status() {
 }
 
 // Select a drive on a particular bus 
-static int _ata_select_drive(int bus, int drive) {
+static int _select_drive(int bus, int drive) {
     u16_t io_base, control_base;
     u8_t drive_head;
     
@@ -355,35 +355,35 @@ static int _ata_select_drive(int bus, int drive) {
     
     // Select drive 
     port_byte_out(io_base + ATA_DRIVE_HEAD, drive_head);
-    _ata_400ns_delay();  // Wait for drive to be selected 
+    _400ns_delay();  // Wait for drive to be selected 
     
     return 0;
 }
 
 // Perform a software reset on the current bus 
-static void _ata_soft_reset() {
+static void _soft_reset() {
     // Set SRST bit in device control register 
     port_byte_out(ata_state.control_base + ATA_DEVICE_CONTROL, ATA_DCR_SRST);
     
     // Wait at least 5us 
-    _ata_400ns_delay();
-    _ata_400ns_delay();
+    _400ns_delay();
+    _400ns_delay();
     
     // Clear SRST bit in device control register 
     port_byte_out(ata_state.control_base + ATA_DEVICE_CONTROL, 0);
     
     // Wait for BSY to clear on the selected drive 
-    _ata_wait_not_busy();
+    _wait_not_busy();
 }
 
 // Wait for the BSY bit to clear 
-static void _ata_wait_not_busy() {
+static void _wait_not_busy() {
     // Timeout could be implemented with a counter here 
     while (port_byte_in(ata_state.io_base + ATA_STATUS) & ATA_STATUS_BSY);
 }
 
 // Wait for the drive to be ready (BSY clear and RDY set) 
-static void _ata_wait_ready() {
+static void _wait_ready() {
     u8_t status;
     
     // Timeout could be implemented with a counter here 
@@ -393,7 +393,7 @@ static void _ata_wait_ready() {
 }
 
 // Process an error that occurred during an ATA operation 
-static int _ata_process_error() {
+static int _process_error() {
     u8_t error = port_byte_in(ata_state.io_base + ATA_ERROR);
     
     // Return the specific error code for detailed error handling 
@@ -401,11 +401,11 @@ static int _ata_process_error() {
 }
 
 // Get identify data from a drive 
-static u16_t *_ata_get_identify_data(int bus, int drive, u16_t* buffer) {
+static u16_t *_get_identify_data(int bus, int drive, u16_t* buffer) {
     u8_t status, lba_mid, lba_hi;
     
     // Select the drive 
-    _ata_select_drive(bus, drive);
+    _select_drive(bus, drive);
     
     // Set feature registers to 0 
     port_byte_out(ata_state.io_base + ATA_SECTOR_COUNT, 0);
@@ -423,7 +423,7 @@ static u16_t *_ata_get_identify_data(int bus, int drive, u16_t* buffer) {
     }
     
     // Wait for BSY to clear 
-    _ata_wait_not_busy();
+    _wait_not_busy();
     
     // Check for ATAPI or SATA signature 
     lba_mid = port_byte_in(ata_state.io_base + ATA_LBA_MID);
@@ -452,7 +452,7 @@ static u16_t *_ata_get_identify_data(int bus, int drive, u16_t* buffer) {
     }
     
     // Read the identify data 
-    _ata_insw(ata_state.io_base + ATA_DATA, buffer, 256);
+    _insw(ata_state.io_base + ATA_DATA, buffer, 256);
     
     return buffer;
 }

@@ -17,14 +17,14 @@
 
 static u8_t sector_buffer[SECTOR_SIZE];
 
-static u32_t _fat16_fat_offset(u16_t cluster);
-static int _fat16_read_sector(fat16_filesystem_t *fs, u32_t sector);
-static int _fat16_write_sector(fat16_filesystem_t *fs, u32_t sector);
-static int _fat16_find_file_in_dir(fat16_filesystem_t *fs, const char *filename, fat16_dir_entry_t *dir_entry, u32_t first_dir_sector, u32_t dir_sectors);
-static int _fat16_set_fat_entry(fat16_filesystem_t *fs, u16_t cluster, u16_t value);
-static u16_t _fat16_find_free_cluster(fat16_filesystem_t *fs);
-static u16_t _fat16_allocate_cluster(fat16_filesystem_t *fs, u16_t prev_cluster);
-static int _fat16_update_dir_entry(fat16_filesystem_t *fs, const char *filename, fat16_dir_entry_t *new_entry);
+static u32_t _fat_offset(u16_t cluster);
+static int _read_sector(fat16_filesystem_t *fs, u32_t sector);
+static int _write_sector(fat16_filesystem_t *fs, u32_t sector);
+static int _find_file_in_dir(fat16_filesystem_t *fs, const char *filename, fat16_dir_entry_t *dir_entry, u32_t first_dir_sector, u32_t dir_sectors);
+static int _set_fat_entry(fat16_filesystem_t *fs, u16_t cluster, u16_t value);
+static u16_t _find_free_cluster(fat16_filesystem_t *fs);
+static u16_t _allocate_cluster(fat16_filesystem_t *fs, u16_t prev_cluster);
+static int _update_dir_entry(fat16_filesystem_t *fs, const char *filename, fat16_dir_entry_t *new_entry);
 
 /* =============================== Public Functions =============================== */
 
@@ -97,12 +97,12 @@ int fat16_init(fat16_filesystem_t *fs, void *device_data,
 // Get the next cluster in a cluster chain
 u16_t fat16_get_next_cluster(fat16_filesystem_t *fs, u16_t cluster) {
     // Calculate FAT parameters
-    u32_t fat_offset = _fat16_fat_offset(cluster);
+    u32_t fat_offset = _fat_offset(cluster);
     u32_t fat_sector = fs->first_fat_sector + (fat_offset / fs->bpb.bytes_per_sector);
     u32_t ent_offset = fat_offset % fs->bpb.bytes_per_sector;
     
     // Read the FAT sector
-    if (_fat16_read_sector(fs, fat_sector) < 0) {
+    if (_read_sector(fs, fat_sector) < 0) {
         return FAT16_ERROR_IO;
     }
     
@@ -151,7 +151,7 @@ int fat16_open_file(fat16_filesystem_t *fs, const char *filename, fat16_file_t *
     
     // Find the file in the root directory
     fat16_dir_entry_t dir_entry;
-    int result = _fat16_find_file_in_dir(fs, filename, &dir_entry, fs->root_dir_sector, root_dir_sectors);
+    int result = _find_file_in_dir(fs, filename, &dir_entry, fs->root_dir_sector, root_dir_sectors);
     
     if (result < 0) {
         return result;
@@ -199,7 +199,7 @@ int fat16_read_file(fat16_file_t *file, void *buffer, u32_t size) {
         u32_t sector_offset = cluster_offset % fs->bpb.bytes_per_sector;
         
         // Read the sector
-        if (_fat16_read_sector(fs, start_sector + sector_index) < 0) {
+        if (_read_sector(fs, start_sector + sector_index) < 0) {
             return FAT16_ERROR_IO;
         }
         
@@ -253,7 +253,7 @@ int fat16_write_file(fat16_file_t *file, const void *buffer, u32_t size) {
     if (current_cluster == 0) {
         if (file->first_cluster == 0) {
             // Allocate first cluster for a new file
-            current_cluster = _fat16_allocate_cluster(fs, 0);
+            current_cluster = _allocate_cluster(fs, 0);
             if (current_cluster == 0) {
                 return FAT16_ERROR_NO_MEMORY;
             }
@@ -297,7 +297,7 @@ int fat16_write_file(fat16_file_t *file, const void *buffer, u32_t size) {
                 
                 // For partial sector writes, read the sector first
                 if (sector_pos > 0 || sector_write < fs->bpb.bytes_per_sector) {
-                    if (_fat16_read_sector(fs, cluster_sector + i) != 0) {
+                    if (_read_sector(fs, cluster_sector + i) != 0) {
                         return FAT16_ERROR_IO;
                     }
                     
@@ -309,7 +309,7 @@ int fat16_write_file(fat16_file_t *file, const void *buffer, u32_t size) {
                 }
                 
                 // Write the sector back
-                if (_fat16_write_sector(fs, cluster_sector + i) != 0) {
+                if (_write_sector(fs, cluster_sector + i) != 0) {
                     return FAT16_ERROR_IO;
                 }
                 
@@ -334,7 +334,7 @@ int fat16_write_file(fat16_file_t *file, const void *buffer, u32_t size) {
         u16_t next_cluster = fat16_get_next_cluster(fs, current_cluster);
         if (next_cluster >= FAT16_EOF) { // End of chain marker in FAT16
             // Allocate new cluster and link to current
-            next_cluster = _fat16_allocate_cluster(fs, current_cluster);
+            next_cluster = _allocate_cluster(fs, current_cluster);
             if (next_cluster == 0) {
                 // Couldn't allocate more clusters, return what we've written so far
                 if (file->current_position > file->file_size) {
@@ -349,7 +349,7 @@ int fat16_write_file(fat16_file_t *file, const void *buffer, u32_t size) {
                     dir_entry.file_size = file->file_size;
                     
                     // Update the directory entry
-                    _fat16_update_dir_entry(fs, file->filename, &dir_entry);
+                    _update_dir_entry(fs, file->filename, &dir_entry);
                 }
                 return bytes_written;
             }
@@ -372,7 +372,7 @@ int fat16_write_file(fat16_file_t *file, const void *buffer, u32_t size) {
         dir_entry.file_size = file->file_size;
         
         // Update the directory entry
-        _fat16_update_dir_entry(fs, file->filename, &dir_entry);
+        _update_dir_entry(fs, file->filename, &dir_entry);
     }
     
     return bytes_written;
@@ -434,7 +434,7 @@ int fat16_read_dir(fat16_dir_t *dir, fat16_dir_entry_t *entry) {
         }
         
         // Read the sector
-        if (_fat16_read_sector(fs, fs->root_dir_sector + sector_index) < 0) {
+        if (_read_sector(fs, fs->root_dir_sector + sector_index) < 0) {
             return FAT16_ERROR_IO;
         }
         
@@ -586,7 +586,7 @@ int fat16_create_file(fat16_filesystem_t *fs, const char *filename, u8_t attribu
     
     // Loop through all sectors in the root directory
     for (u32_t sector = 0; sector < root_dir_sectors; sector++) {
-        if (_fat16_read_sector(fs, fs->root_dir_sector + sector) < 0) {
+        if (_read_sector(fs, fs->root_dir_sector + sector) < 0) {
             return FAT16_ERROR_IO;
         }
         
@@ -653,7 +653,7 @@ int fat16_create_file(fat16_filesystem_t *fs, const char *filename, u8_t attribu
     free_entry->file_size = 0;
     
     // Write the updated sector back
-    if (_fat16_write_sector(fs, free_sector) < 0) {
+    if (_write_sector(fs, free_sector) < 0) {
         return FAT16_ERROR_IO;
     }
     
@@ -685,7 +685,7 @@ int fat16_delete_file(fat16_filesystem_t *fs, const char *filename) {
         u16_t next_cluster = fat16_get_next_cluster(fs, cluster);
         
         // Mark the cluster as free
-        if (_fat16_set_fat_entry(fs, cluster, 0) < 0) {
+        if (_set_fat_entry(fs, cluster, 0) < 0) {
             fat16_close_file(&file);
             return FAT16_ERROR_IO;
         }
@@ -712,7 +712,7 @@ int fat16_delete_file(fat16_filesystem_t *fs, const char *filename) {
     
     // Find the file in the root directory
     for (u32_t sector = 0; sector < root_dir_sectors; sector++) {
-        if (_fat16_read_sector(fs, fs->root_dir_sector + sector) < 0) {
+        if (_read_sector(fs, fs->root_dir_sector + sector) < 0) {
             return FAT16_ERROR_IO;
         }
         
@@ -772,7 +772,7 @@ int fat16_delete_file(fat16_filesystem_t *fs, const char *filename) {
                 current->name[0] = 0xE5;
                 
                 // Write the updated sector back
-                if (_fat16_write_sector(fs, fs->root_dir_sector + sector) < 0) {
+                if (_write_sector(fs, fs->root_dir_sector + sector) < 0) {
                     return FAT16_ERROR_IO;
                 }
                 
@@ -804,7 +804,7 @@ int fat16_rename_file(fat16_filesystem_t *fs, const char *old_name, const char *
     
     // Find the file in the directory
     fat16_dir_entry_t dir_entry;
-    int result = _fat16_find_file_in_dir(fs, old_name, &dir_entry, fs->root_dir_sector, 
+    int result = _find_file_in_dir(fs, old_name, &dir_entry, fs->root_dir_sector, 
                                  ((fs->root_dir_entries * 32) + (fs->bpb.bytes_per_sector - 1)) / fs->bpb.bytes_per_sector);
     
     if (result < 0) {
@@ -832,28 +832,28 @@ int fat16_rename_file(fat16_filesystem_t *fs, const char *old_name, const char *
     }
     
     // Update the directory entry
-    return _fat16_update_dir_entry(fs, old_name, &dir_entry);
+    return _update_dir_entry(fs, old_name, &dir_entry);
 }
 
 /* =============================== Private Functions =============================== */
 
 // Calculate the FAT entry offset for a given cluster
-static u32_t _fat16_fat_offset(u16_t cluster) {
+static u32_t _fat_offset(u16_t cluster) {
     return cluster * 2; // Each FAT entry is 2 bytes in FAT16
 }
 
 // Read a sector from the device into the sector buffer
-static int _fat16_read_sector(fat16_filesystem_t *fs, u32_t sector) {
+static int _read_sector(fat16_filesystem_t *fs, u32_t sector) {
     return fs->read_sector(fs->device_data, sector, sector_buffer, SECTOR_SIZE);
 }
 
 // Write the sector buffer to the device
-static int _fat16_write_sector(fat16_filesystem_t *fs, u32_t sector) {
+static int _write_sector(fat16_filesystem_t *fs, u32_t sector) {
     return fs->write_sector(fs->device_data, sector, sector_buffer, SECTOR_SIZE);
 }
 
 // Read the root directory entries until we find the specified filename
-static int _fat16_find_file_in_dir(fat16_filesystem_t *fs, const char *filename, fat16_dir_entry_t *dir_entry, 
+static int _find_file_in_dir(fat16_filesystem_t *fs, const char *filename, fat16_dir_entry_t *dir_entry, 
                            u32_t first_dir_sector, u32_t dir_sectors) {
     char short_name[13]; // 8.3 format + null terminator
     if (fat16_to_short_filename(filename, short_name) < 0) {
@@ -867,7 +867,7 @@ static int _fat16_find_file_in_dir(fat16_filesystem_t *fs, const char *filename,
     
     // Loop through all sectors in the directory
     for (u32_t sector = 0; sector < dir_sectors; sector++) {
-        if (_fat16_read_sector(fs, first_dir_sector + sector) < 0) {
+        if (_read_sector(fs, first_dir_sector + sector) < 0) {
             return FAT16_ERROR_IO;
         }
         
@@ -935,14 +935,14 @@ static int _fat16_find_file_in_dir(fat16_filesystem_t *fs, const char *filename,
 
 
 // Set the value of a FAT entry
-static int _fat16_set_fat_entry(fat16_filesystem_t *fs, u16_t cluster, u16_t value) {
+static int _set_fat_entry(fat16_filesystem_t *fs, u16_t cluster, u16_t value) {
     // Calculate FAT parameters
-    u32_t fat_offset = _fat16_fat_offset(cluster);
+    u32_t fat_offset = _fat_offset(cluster);
     u32_t fat_sector = fs->first_fat_sector + (fat_offset / fs->bpb.bytes_per_sector);
     u32_t ent_offset = fat_offset % fs->bpb.bytes_per_sector;
     
     // Read the FAT sector
-    if (_fat16_read_sector(fs, fat_sector) < 0) {
+    if (_read_sector(fs, fat_sector) < 0) {
         return FAT16_ERROR_IO;
     }
     
@@ -950,7 +950,7 @@ static int _fat16_set_fat_entry(fat16_filesystem_t *fs, u16_t cluster, u16_t val
     *(u16_t *)&sector_buffer[ent_offset] = value;
     
     // Write the updated sector back
-    if (_fat16_write_sector(fs, fat_sector) < 0) {
+    if (_write_sector(fs, fat_sector) < 0) {
         return FAT16_ERROR_IO;
     }
     
@@ -959,7 +959,7 @@ static int _fat16_set_fat_entry(fat16_filesystem_t *fs, u16_t cluster, u16_t val
         u32_t second_fat_sector = fat_sector + fs->sectors_per_fat;
         
         // Read the second FAT sector
-        if (_fat16_read_sector(fs, second_fat_sector) < 0) {
+        if (_read_sector(fs, second_fat_sector) < 0) {
             return FAT16_ERROR_IO;
         }
         
@@ -967,7 +967,7 @@ static int _fat16_set_fat_entry(fat16_filesystem_t *fs, u16_t cluster, u16_t val
         *(u16_t *)&sector_buffer[ent_offset] = value;
         
         // Write the updated sector back
-        if (_fat16_write_sector(fs, second_fat_sector) < 0) {
+        if (_write_sector(fs, second_fat_sector) < 0) {
             return FAT16_ERROR_IO;
         }
     }
@@ -976,7 +976,7 @@ static int _fat16_set_fat_entry(fat16_filesystem_t *fs, u16_t cluster, u16_t val
 }
 
 // Find a free cluster in the FAT
-static u16_t _fat16_find_free_cluster(fat16_filesystem_t *fs) {
+static u16_t _find_free_cluster(fat16_filesystem_t *fs) {
     // Start searching from cluster 2 (first valid cluster)
     for (u16_t cluster = 2; cluster < fs->total_clusters + 2; cluster++) {
         u16_t next_cluster = fat16_get_next_cluster(fs, cluster);
@@ -989,21 +989,21 @@ static u16_t _fat16_find_free_cluster(fat16_filesystem_t *fs) {
 }
 
 // Allocate a new cluster and link it to a chain
-static u16_t _fat16_allocate_cluster(fat16_filesystem_t *fs, u16_t prev_cluster) {
+static u16_t _allocate_cluster(fat16_filesystem_t *fs, u16_t prev_cluster) {
     // Find a free cluster
-    u16_t new_cluster = _fat16_find_free_cluster(fs);
+    u16_t new_cluster = _find_free_cluster(fs);
     if (new_cluster == 0) {
         return 0; // No free clusters
     }
     
     // Mark the cluster as end of chain
-    if (_fat16_set_fat_entry(fs, new_cluster, FAT16_EOF) < 0) {
+    if (_set_fat_entry(fs, new_cluster, FAT16_EOF) < 0) {
         return 0;
     }
     
     // Link the previous cluster to the new one
     if (prev_cluster != 0) {
-        if (_fat16_set_fat_entry(fs, prev_cluster, new_cluster) < 0) {
+        if (_set_fat_entry(fs, prev_cluster, new_cluster) < 0) {
             return 0;
         }
     }
@@ -1012,7 +1012,7 @@ static u16_t _fat16_allocate_cluster(fat16_filesystem_t *fs, u16_t prev_cluster)
 }
 
 // Update a directory entry
-static int _fat16_update_dir_entry(fat16_filesystem_t *fs, const char *filename, fat16_dir_entry_t *new_entry) {
+static int _update_dir_entry(fat16_filesystem_t *fs, const char *filename, fat16_dir_entry_t *new_entry) {
     // Calculate the size of the root directory in sectors
     u32_t root_dir_sectors = ((fs->root_dir_entries * 32) + (fs->bpb.bytes_per_sector - 1)) / fs->bpb.bytes_per_sector;
     
@@ -1029,7 +1029,7 @@ static int _fat16_update_dir_entry(fat16_filesystem_t *fs, const char *filename,
     
     // Loop through all sectors in the root directory
     for (u32_t sector = 0; sector < root_dir_sectors; sector++) {
-        if (_fat16_read_sector(fs, fs->root_dir_sector + sector) < 0) {
+        if (_read_sector(fs, fs->root_dir_sector + sector) < 0) {
             return FAT16_ERROR_IO;
         }
         
@@ -1089,7 +1089,7 @@ static int _fat16_update_dir_entry(fat16_filesystem_t *fs, const char *filename,
                 mem_cpy(current, new_entry, sizeof(fat16_dir_entry_t));
                 
                 // Write the updated sector back
-                if (_fat16_write_sector(fs, fs->root_dir_sector + sector) < 0) {
+                if (_write_sector(fs, fs->root_dir_sector + sector) < 0) {
                     return FAT16_ERROR_IO;
                 }
                 
