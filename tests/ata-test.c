@@ -32,7 +32,7 @@ void test_ata() {
     result = ata_write_sectors(0, TEST_SECTOR_COUNT, write_buffer);
     
     // Check result
-    int_to_hex_string(result, status_str, sizeof(status_str));
+    str_int_to_hex(result, status_str, sizeof(status_str));
     vga_print("Write result code: ");
     vga_print(status_str);
     vga_print("\n");
@@ -47,7 +47,7 @@ void test_ata() {
     result = ata_read_sectors(0, TEST_SECTOR_COUNT, verify_buffer);
     
     // Check result
-    int_to_hex_string(result, status_str, sizeof(status_str));
+    str_int_to_hex(result, status_str, sizeof(status_str));
     vga_print("Read result code: ");
     vga_print(status_str);
     vga_print("\n");

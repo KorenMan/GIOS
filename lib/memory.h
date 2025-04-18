@@ -16,6 +16,5 @@ typedef struct mem_block {
 void mem_init(); 
 void *mem_alloc(u32_t size);
 void mem_free(void *ptr);
-
-void mem_set(void *buff, int val, u32_t size);
+void mem_set(void *buff, u8_t val, u32_t size);
 void mem_cpy(void *dest, const void *source, u32_t size); 

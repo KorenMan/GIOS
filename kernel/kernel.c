@@ -1,8 +1,8 @@
 #include "../drivers/vga-driver.h"
 #include "../drivers/keyboard-driver.h"
 #include "../drivers/ata-driver.h"
+#include "../drivers/fat16.h"
 #include "../lib/memory.h"
-#include "../lib/string.h"
 
 extern void test_ata();
 

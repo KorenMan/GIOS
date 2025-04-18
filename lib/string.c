@@ -1,6 +1,6 @@
 #include "string.h"
 
-void int_to_hex_string(int num, char *str, int size) {
+void str_int_to_hex(int num, char *str, int size) {
     char hex_digits[] = "0123456789ABCDEF";
     int i = 0;
     
@@ -48,4 +48,20 @@ u32_t str_len(const char *str) {
         len++;
     }
     return len;
+}
+
+bool str_cmp(const char *str1, const char *str2) {
+    for (int i = 0; str1[i] != '\0'; i++) {
+        if (str1[i] != str2[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+char str_to_upper(char c) {
+    if ('a' < c < 'z') {
+        return c - 'a' + 'A';
+    }
+    return c;
 }

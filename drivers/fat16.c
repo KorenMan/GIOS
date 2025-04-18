@@ -18,9 +18,9 @@
 static u8_t sector_buffer[SECTOR_SIZE];
 
 static u32_t _fat16_fat_offset(u16_t cluster);
-static int _read_sector(fat16_filesystem_t *fs, u32_t sector);
-static int _write_sector(fat16_filesystem_t *fs, u32_t sector);
-static int _find_file_in_dir(fat16_filesystem_t *fs, const char *filename, fat16_dir_entry_t *dir_entry, u32_t first_dir_sector, u32_t dir_sectors);
+static int _fat16_read_sector(fat16_filesystem_t *fs, u32_t sector);
+static int _fat16_write_sector(fat16_filesystem_t *fs, u32_t sector);
+static int _fat16_find_file_in_dir(fat16_filesystem_t *fs, const char *filename, fat16_dir_entry_t *dir_entry, u32_t first_dir_sector, u32_t dir_sectors);
 static int _fat16_set_fat_entry(fat16_filesystem_t *fs, u16_t cluster, u16_t value);
 static u16_t _fat16_find_free_cluster(fat16_filesystem_t *fs);
 static u16_t _fat16_allocate_cluster(fat16_filesystem_t *fs, u16_t prev_cluster);
@@ -102,7 +102,7 @@ u16_t fat16_get_next_cluster(fat16_filesystem_t *fs, u16_t cluster) {
     u32_t ent_offset = fat_offset % fs->bpb.bytes_per_sector;
     
     // Read the FAT sector
-    if (read_sector(fs, fat_sector) < 0) {
+    if (_fat16_read_sector(fs, fat_sector) < 0) {
         return FAT16_ERROR_IO;
     }
     
@@ -151,7 +151,7 @@ int fat16_open_file(fat16_filesystem_t *fs, const char *filename, fat16_file_t *
     
     // Find the file in the root directory
     fat16_dir_entry_t dir_entry;
-    int result = _find_file_in_dir(fs, filename, &dir_entry, fs->root_dir_sector, root_dir_sectors);
+    int result = _fat16_find_file_in_dir(fs, filename, &dir_entry, fs->root_dir_sector, root_dir_sectors);
     
     if (result < 0) {
         return result;
@@ -199,7 +199,7 @@ int fat16_read_file(fat16_file_t *file, void *buffer, u32_t size) {
         u32_t sector_offset = cluster_offset % fs->bpb.bytes_per_sector;
         
         // Read the sector
-        if (read_sector(fs, start_sector + sector_index) < 0) {
+        if (_fat16_read_sector(fs, start_sector + sector_index) < 0) {
             return FAT16_ERROR_IO;
         }
         
@@ -253,7 +253,7 @@ int fat16_write_file(fat16_file_t *file, const void *buffer, u32_t size) {
     if (current_cluster == 0) {
         if (file->first_cluster == 0) {
             // Allocate first cluster for a new file
-            current_cluster = fat16_allocate_cluster(fs, 0);
+            current_cluster = _fat16_allocate_cluster(fs, 0);
             if (current_cluster == 0) {
                 return FAT16_ERROR_NO_MEMORY;
             }
@@ -297,7 +297,7 @@ int fat16_write_file(fat16_file_t *file, const void *buffer, u32_t size) {
                 
                 // For partial sector writes, read the sector first
                 if (sector_pos > 0 || sector_write < fs->bpb.bytes_per_sector) {
-                    if (read_sector(fs, cluster_sector + i) != 0) {
+                    if (_fat16_read_sector(fs, cluster_sector + i) != 0) {
                         return FAT16_ERROR_IO;
                     }
                     
@@ -309,7 +309,7 @@ int fat16_write_file(fat16_file_t *file, const void *buffer, u32_t size) {
                 }
                 
                 // Write the sector back
-                if (write_sector(fs, cluster_sector + i) != 0) {
+                if (_fat16_write_sector(fs, cluster_sector + i) != 0) {
                     return FAT16_ERROR_IO;
                 }
                 
@@ -334,7 +334,7 @@ int fat16_write_file(fat16_file_t *file, const void *buffer, u32_t size) {
         u16_t next_cluster = fat16_get_next_cluster(fs, current_cluster);
         if (next_cluster >= FAT16_EOF) { // End of chain marker in FAT16
             // Allocate new cluster and link to current
-            next_cluster = fat16_allocate_cluster(fs, current_cluster);
+            next_cluster = _fat16_allocate_cluster(fs, current_cluster);
             if (next_cluster == 0) {
                 // Couldn't allocate more clusters, return what we've written so far
                 if (file->current_position > file->file_size) {
@@ -349,7 +349,7 @@ int fat16_write_file(fat16_file_t *file, const void *buffer, u32_t size) {
                     dir_entry.file_size = file->file_size;
                     
                     // Update the directory entry
-                    fat16_update_dir_entry(fs, file->filename, &dir_entry);
+                    _fat16_update_dir_entry(fs, file->filename, &dir_entry);
                 }
                 return bytes_written;
             }
@@ -372,7 +372,7 @@ int fat16_write_file(fat16_file_t *file, const void *buffer, u32_t size) {
         dir_entry.file_size = file->file_size;
         
         // Update the directory entry
-        fat16_update_dir_entry(fs, file->filename, &dir_entry);
+        _fat16_update_dir_entry(fs, file->filename, &dir_entry);
     }
     
     return bytes_written;
@@ -434,7 +434,7 @@ int fat16_read_dir(fat16_dir_t *dir, fat16_dir_entry_t *entry) {
         }
         
         // Read the sector
-        if (read_sector(fs, fs->root_dir_sector + sector_index) < 0) {
+        if (_fat16_read_sector(fs, fs->root_dir_sector + sector_index) < 0) {
             return FAT16_ERROR_IO;
         }
         
@@ -537,13 +537,13 @@ int fat16_to_short_filename(const char *input, char *output) {
     
     // Copy the name (up to 8 characters)
     for (u32_t i = 0; i < name_len && i < 8; i++) {
-        output[i] = toupper(input[i]);
+        output[i] = str_to_upper(input[i]);
     }
     
     // Copy the extension if present (up to 3 characters)
     if (dot && *(dot + 1)) {
         for (u32_t i = 0; i < 3 && *(dot + 1 + i); i++) {
-            output[8 + i] = toupper(dot[1 + i]);
+            output[8 + i] = str_to_upper(dot[1 + i]);
         }
     }
     
@@ -586,7 +586,7 @@ int fat16_create_file(fat16_filesystem_t *fs, const char *filename, u8_t attribu
     
     // Loop through all sectors in the root directory
     for (u32_t sector = 0; sector < root_dir_sectors; sector++) {
-        if (read_sector(fs, fs->root_dir_sector + sector) < 0) {
+        if (_fat16_read_sector(fs, fs->root_dir_sector + sector) < 0) {
             return FAT16_ERROR_IO;
         }
         
@@ -627,12 +627,12 @@ int fat16_create_file(fat16_filesystem_t *fs, const char *filename, u8_t attribu
     
     // Fill name part (padded with spaces)
     for (int i = 0; i < 8; i++) {
-        free_entry->name[i] = (i < name_len) ? toupper(short_name[i]) : ' ';
+        free_entry->name[i] = (i < name_len) ? str_to_upper(short_name[i]) : ' ';
     }
     
     // Fill extension part (padded with spaces)
     for (int i = 0; i < 3; i++) {
-        free_entry->ext[i] = (dot && dot[1+i]) ? toupper(dot[1+i]) : ' ';
+        free_entry->ext[i] = (dot && dot[1+i]) ? str_to_upper(dot[1+i]) : ' ';
     }
     
     // Set attributes
@@ -653,7 +653,7 @@ int fat16_create_file(fat16_filesystem_t *fs, const char *filename, u8_t attribu
     free_entry->file_size = 0;
     
     // Write the updated sector back
-    if (_write_sector(fs, free_sector) < 0) {
+    if (_fat16_write_sector(fs, free_sector) < 0) {
         return FAT16_ERROR_IO;
     }
     
@@ -707,12 +707,12 @@ int fat16_delete_file(fat16_filesystem_t *fs, const char *filename) {
     
     // Convert to uppercase for case-insensitive comparison
     for (int i = 0; short_name[i]; i++) {
-        short_name[i] = toupper(short_name[i]);
+        short_name[i] = str_to_upper(short_name[i]);
     }
     
     // Find the file in the root directory
     for (u32_t sector = 0; sector < root_dir_sectors; sector++) {
-        if (read_sector(fs, fs->root_dir_sector + sector) < 0) {
+        if (_fat16_read_sector(fs, fs->root_dir_sector + sector) < 0) {
             return FAT16_ERROR_IO;
         }
         
@@ -763,16 +763,16 @@ int fat16_delete_file(fat16_filesystem_t *fs, const char *filename) {
             
             // Convert to uppercase for case-insensitive comparison
             for (int i = 0; entry_name[i]; i++) {
-                entry_name[i] = toupper(entry_name[i]);
+                entry_name[i] = str_to_upper(entry_name[i]);
             }
             
             // Compare names
-            if (strcmp(entry_name, short_name) == 0) {
+            if (str_cmp(entry_name, short_name) == 0) {
                 // Mark the entry as deleted
                 current->name[0] = 0xE5;
                 
                 // Write the updated sector back
-                if (_write_sector(fs, fs->root_dir_sector + sector) < 0) {
+                if (_fat16_write_sector(fs, fs->root_dir_sector + sector) < 0) {
                     return FAT16_ERROR_IO;
                 }
                 
@@ -804,7 +804,7 @@ int fat16_rename_file(fat16_filesystem_t *fs, const char *old_name, const char *
     
     // Find the file in the directory
     fat16_dir_entry_t dir_entry;
-    int result = _find_file_in_dir(fs, old_name, &dir_entry, fs->root_dir_sector, 
+    int result = _fat16_find_file_in_dir(fs, old_name, &dir_entry, fs->root_dir_sector, 
                                  ((fs->root_dir_entries * 32) + (fs->bpb.bytes_per_sector - 1)) / fs->bpb.bytes_per_sector);
     
     if (result < 0) {
@@ -823,12 +823,12 @@ int fat16_rename_file(fat16_filesystem_t *fs, const char *old_name, const char *
     
     // Fill name part (padded with spaces)
     for (int i = 0; i < 8; i++) {
-        dir_entry.name[i] = (i < name_len) ? toupper(short_name[i]) : ' ';
+        dir_entry.name[i] = (i < name_len) ? str_to_upper(short_name[i]) : ' ';
     }
     
     // Fill extension part (padded with spaces)
     for (int i = 0; i < 3; i++) {
-        dir_entry.ext[i] = (dot && dot[1+i]) ? toupper(dot[1+i]) : ' ';
+        dir_entry.ext[i] = (dot && dot[1+i]) ? str_to_upper(dot[1+i]) : ' ';
     }
     
     // Update the directory entry
@@ -843,14 +843,96 @@ static u32_t _fat16_fat_offset(u16_t cluster) {
 }
 
 // Read a sector from the device into the sector buffer
-static int _read_sector(fat16_filesystem_t *fs, u32_t sector) {
+static int _fat16_read_sector(fat16_filesystem_t *fs, u32_t sector) {
     return fs->read_sector(fs->device_data, sector, sector_buffer, SECTOR_SIZE);
 }
 
 // Write the sector buffer to the device
-static int _write_sector(fat16_filesystem_t *fs, u32_t sector) {
+static int _fat16_write_sector(fat16_filesystem_t *fs, u32_t sector) {
     return fs->write_sector(fs->device_data, sector, sector_buffer, SECTOR_SIZE);
 }
+
+// Read the root directory entries until we find the specified filename
+static int _fat16_find_file_in_dir(fat16_filesystem_t *fs, const char *filename, fat16_dir_entry_t *dir_entry, 
+                           u32_t first_dir_sector, u32_t dir_sectors) {
+    char short_name[13]; // 8.3 format + null terminator
+    if (fat16_to_short_filename(filename, short_name) < 0) {
+        return FAT16_ERROR_INVALID_PARAMETER;
+    }
+    
+    // Convert to uppercase for case-insensitive comparison
+    for (int i = 0; short_name[i]; i++) {
+        short_name[i] = str_to_upper(short_name[i]);
+    }
+    
+    // Loop through all sectors in the directory
+    for (u32_t sector = 0; sector < dir_sectors; sector++) {
+        if (_fat16_read_sector(fs, first_dir_sector + sector) < 0) {
+            return FAT16_ERROR_IO;
+        }
+        
+        // Each sector contains multiple directory entries
+        for (u32_t entry = 0; entry < fs->bpb.bytes_per_sector / sizeof(fat16_dir_entry_t); entry++) {
+            fat16_dir_entry_t *current = (fat16_dir_entry_t *)&sector_buffer[entry * sizeof(fat16_dir_entry_t)];
+            
+            // Check if this is the end of directory entries
+            if (current->name[0] == 0) {
+                return FAT16_ERROR_NOT_FOUND;
+            }
+            
+            // Skip deleted entries and long filename entries
+            if (current->name[0] == 0xE5 || (current->attributes & FAT_ATTR_LFN) == FAT_ATTR_LFN) {
+                continue;
+            }
+            
+            // Extract the 8.3 filename
+            char entry_name[13];
+            mem_cpy(entry_name, current->name, 8);
+            
+            // Remove trailing spaces from name
+            int name_len = 8;
+            while (name_len > 0 && entry_name[name_len - 1] == ' ') {
+                name_len--;
+            }
+            entry_name[name_len] = '\0';
+            
+            // If there's an extension, add it
+            bool has_ext = false;
+            for (int i = 0; i < 3; i++) {
+                if (current->ext[i] != ' ') {
+                    has_ext = true;
+                    break;
+                }
+            }
+            
+            if (has_ext) {
+                entry_name[name_len++] = '.';
+                
+                for (int i = 0; i < 3; i++) {
+                    if (current->ext[i] != ' ') {
+                        entry_name[name_len++] = current->ext[i];
+                    }
+                }
+                entry_name[name_len] = '\0';
+            }
+            
+            // Convert to uppercase for case-insensitive comparison
+            for (int i = 0; entry_name[i]; i++) {
+                entry_name[i] = str_to_upper(entry_name[i]);
+            }
+            
+            // Compare names
+            if (str_cmp(entry_name, short_name) == 0) {
+                // Found the file, copy the directory entry
+                mem_cpy(dir_entry, current, sizeof(fat16_dir_entry_t));
+                return 0;
+            }
+        }
+    }
+    
+    return FAT16_ERROR_NOT_FOUND;
+}
+
 
 // Set the value of a FAT entry
 static int _fat16_set_fat_entry(fat16_filesystem_t *fs, u16_t cluster, u16_t value) {
@@ -860,7 +942,7 @@ static int _fat16_set_fat_entry(fat16_filesystem_t *fs, u16_t cluster, u16_t val
     u32_t ent_offset = fat_offset % fs->bpb.bytes_per_sector;
     
     // Read the FAT sector
-    if (read_sector(fs, fat_sector) < 0) {
+    if (_fat16_read_sector(fs, fat_sector) < 0) {
         return FAT16_ERROR_IO;
     }
     
@@ -868,7 +950,7 @@ static int _fat16_set_fat_entry(fat16_filesystem_t *fs, u16_t cluster, u16_t val
     *(u16_t *)&sector_buffer[ent_offset] = value;
     
     // Write the updated sector back
-    if (_write_sector(fs, fat_sector) < 0) {
+    if (_fat16_write_sector(fs, fat_sector) < 0) {
         return FAT16_ERROR_IO;
     }
     
@@ -877,7 +959,7 @@ static int _fat16_set_fat_entry(fat16_filesystem_t *fs, u16_t cluster, u16_t val
         u32_t second_fat_sector = fat_sector + fs->sectors_per_fat;
         
         // Read the second FAT sector
-        if (read_sector(fs, second_fat_sector) < 0) {
+        if (_fat16_read_sector(fs, second_fat_sector) < 0) {
             return FAT16_ERROR_IO;
         }
         
@@ -885,7 +967,7 @@ static int _fat16_set_fat_entry(fat16_filesystem_t *fs, u16_t cluster, u16_t val
         *(u16_t *)&sector_buffer[ent_offset] = value;
         
         // Write the updated sector back
-        if (_write_sector(fs, second_fat_sector) < 0) {
+        if (_fat16_write_sector(fs, second_fat_sector) < 0) {
             return FAT16_ERROR_IO;
         }
     }
@@ -942,12 +1024,12 @@ static int _fat16_update_dir_entry(fat16_filesystem_t *fs, const char *filename,
     
     // Convert to uppercase for case-insensitive comparison
     for (int i = 0; short_name[i]; i++) {
-        short_name[i] = toupper(short_name[i]);
+        short_name[i] = str_to_upper(short_name[i]);
     }
     
     // Loop through all sectors in the root directory
     for (u32_t sector = 0; sector < root_dir_sectors; sector++) {
-        if (read_sector(fs, fs->root_dir_sector + sector) < 0) {
+        if (_fat16_read_sector(fs, fs->root_dir_sector + sector) < 0) {
             return FAT16_ERROR_IO;
         }
         
@@ -998,16 +1080,16 @@ static int _fat16_update_dir_entry(fat16_filesystem_t *fs, const char *filename,
             
             // Convert to uppercase for case-insensitive comparison
             for (int i = 0; entry_name[i]; i++) {
-                entry_name[i] = toupper(entry_name[i]);
+                entry_name[i] = str_to_upper(entry_name[i]);
             }
             
             // Compare names
-            if (strcmp(entry_name, short_name) == 0) {
+            if (str_cmp(entry_name, short_name) == 0) {
                 // Found the file, update the directory entry
                 mem_cpy(current, new_entry, sizeof(fat16_dir_entry_t));
                 
                 // Write the updated sector back
-                if (write_sector(fs, fs->root_dir_sector + sector) < 0) {
+                if (_fat16_write_sector(fs, fs->root_dir_sector + sector) < 0) {
                     return FAT16_ERROR_IO;
                 }
                 

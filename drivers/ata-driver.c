@@ -101,7 +101,7 @@ void ata_print_drive_info(ata_device_info_t *info) {
     
     // Print device type 
     vga_print("Type: ");
-    int_to_hex_string(info->type, buffer, sizeof(buffer));
+    str_int_to_hex(info->type, buffer, sizeof(buffer));
     vga_print(buffer);
     vga_print("\n");
     
@@ -117,7 +117,7 @@ void ata_print_drive_info(ata_device_info_t *info) {
     
     if (info->lba28_supported) {
         vga_print("LBA28 Sectors: ");
-        int_to_hex_string(info->lba28_sectors, buffer, sizeof(buffer));
+        str_int_to_hex(info->lba28_sectors, buffer, sizeof(buffer));
         vga_print(buffer);
         vga_print("\n");
     }
@@ -128,12 +128,12 @@ void ata_print_drive_info(ata_device_info_t *info) {
     
     // Print UDMA modes 
     vga_print("UDMA Supported: ");
-    int_to_hex_string(info->udma_supported, buffer, sizeof(buffer));
+    str_int_to_hex(info->udma_supported, buffer, sizeof(buffer));
     vga_print(buffer);
     vga_print("\n");
     
     vga_print("UDMA Active: ");
-    int_to_hex_string(info->udma_active, buffer, sizeof(buffer));
+    str_int_to_hex(info->udma_active, buffer, sizeof(buffer));
     vga_print(buffer);
     vga_print("\n");
     
