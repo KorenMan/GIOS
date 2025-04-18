@@ -4,17 +4,6 @@
 
 #define SECTOR_SIZE 512  // Standard sector size
 
-// Error codes
-#define FAT16_ERROR_INVALID_FILESYSTEM    -1
-#define FAT16_ERROR_NOT_FOUND             -2
-#define FAT16_ERROR_IO                    -3
-#define FAT16_ERROR_NO_MEMORY             -4
-#define FAT16_ERROR_INVALID_PARAMETER     -5
-
-// Default values for date/time fields (January 1, 1980, 00:00:00)
-#define DEFAULT_FAT_DATE 0x0021  // 01:01:1980 in FAT format
-#define DEFAULT_FAT_TIME 0x0000  // 00:00:00 in FAT format
-
 static u8_t sector_buffer[SECTOR_SIZE];
 
 static u32_t _fat_offset(u16_t cluster);

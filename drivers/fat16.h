@@ -7,6 +7,17 @@
 #define FAT16_BAD_CLUSTER    0xFFF7  // Bad cluster marker
 #define FAT16_FREE_CLUSTER   0x0000  // Free cluster marker
 
+// Error codes
+#define FAT16_ERROR_INVALID_FILESYSTEM    -1
+#define FAT16_ERROR_NOT_FOUND             -2
+#define FAT16_ERROR_IO                    -3
+#define FAT16_ERROR_NO_MEMORY             -4
+#define FAT16_ERROR_INVALID_PARAMETER     -5
+
+// Default values for date/time fields (January 1, 1980, 00:00:00)
+#define DEFAULT_FAT_DATE 0x0021  // 01:01:1980 in FAT format
+#define DEFAULT_FAT_TIME 0x0000  // 00:00:00 in FAT format
+
 // FAT16 BIOS Parameter Block structure
 typedef struct {
     u8_t     jump[3];              // Jump instruction to boot code
