@@ -90,7 +90,7 @@ int ata_identify_drive(int bus, int drive, ata_device_info_t *info) {
     }
     
     // DEBUG
-    ata_print_drive_info(info);
+    //ata_print_drive_info(info);
     
     return 0;  // Success 
 }

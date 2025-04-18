@@ -5,18 +5,21 @@
 #include "../lib/memory.h"
 
 extern void test_ata();
+extern int test_ata_fat16();
 
 void main() {
     vga_clear_screen();
 
     mem_init();
     
-    if (ata_init() != 0) {
-        vga_print("Failed to initialize ATA driver\n");
-        return;
-    }
+    // if (ata_init() != 0) {
+    //     vga_print("Failed to initialize ATA driver\n");
+    //     return;
+    // }
     
-    test_ata();
+    //test_ata();
+
+    test_ata_fat16();
 
     // enabling interrupts
     isr_install();
