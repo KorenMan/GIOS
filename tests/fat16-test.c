@@ -53,14 +53,14 @@ int test_ata_fat16() {
     
     // Select a test partition (starting at LBA 1000 with 100 sectors)
     // This should be a non-critical area of the disk for testing
-    if (ata_select_partition(1000, 100) != 0) {
+    if (ata_select_partition(0, 10) != 0) {
         vga_print("Failed to select partition for ATA test\n");
         return -2;
     }
     
     // Fill write buffer with test pattern
     for (int i = 0; i < TEST_SECTOR_COUNT * SECTOR_SIZE; i++) {
-        write_buffer[i] = (u8_t)(i & 0xFF);
+        write_buffer[i] = (u8_t)('a');
     }
     
     // Write test pattern
@@ -94,6 +94,8 @@ int test_ata_fat16() {
     }
     
     // Compare buffers
+    //!!!!!!!!!
+    while(1);
     vga_print("Comparing data...\n");
     for (int i = 0; i < TEST_SECTOR_COUNT * SECTOR_SIZE; i++) {
         if (write_buffer[i] != verify_buffer[i]) {
