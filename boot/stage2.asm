@@ -1,4 +1,3 @@
-; Second stage bootloader - loaded at 0x8000
 bits 16
 org 0x8000
 
@@ -16,15 +15,12 @@ start:
     mov sp, bp
     
     ; Clear screen
-    mov ax, 0x0003  ; Text mode 80x25, 16 colors
+    mov ax, 0x0003
     int 0x10
     
     ; Print welcome message
     mov si, welcome_msg
     call print_string
-    
-    ; Get memory map
-    call get_memory_map
     
     ; Load kernel using LBA addressing
     call load_kernel
@@ -61,19 +57,10 @@ disk_error:
     call print_hex
     jmp $
 
-; Get memory map from BIOS
-get_memory_map:
-    mov si, memory_msg
-    call print_string
-    
-    ; We would store the memory map at 0x9000
-    ; But for simplicity, just showing message
-    ret
-
 ; Print string function (SI = string address)
 print_string:
     pusha
-    mov ah, 0x0E    ; BIOS teletype function
+    mov ah, 0x0e    ; BIOS teletype function
 .loop:
     lodsb           ; Load byte from SI into AL and increment SI
     test al, al     ; Check if character is 0 (end of string)
@@ -88,11 +75,11 @@ print_string:
 print_hex:
     pusha
     mov cx, 2       ; 2 digits (1 byte)
-    mov ah, 0x0E    ; BIOS teletype
+    mov ah, 0x0e    ; BIOS teletype
 .hex_loop:
     rol al, 4       ; Rotate 4 bits left (get high nibble)
     mov bl, al      ; Copy to BL
-    and bl, 0x0F    ; Mask off high nibble
+    and bl, 0x0f    ; Mask off high nibble
     add bl, '0'     ; Convert to ASCII
     cmp bl, '9'     ; Is it > 9?
     jle .print_digit
@@ -116,6 +103,37 @@ switch_to_protected_mode:
     
     ; Far jump to 32-bit code
     jmp 0x08:protected_mode_start
+
+bits 32
+protected_mode_start:
+    ; Set up segment registers
+    mov ax, 0x10
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    mov ss, ax
+    
+    ; Set up stack
+    mov esp, 0x90000
+    
+    ; Jump to kernel
+    jmp 0x10000
+
+boot_drive: db 0
+welcome_msg: db "Second Stage Bootloader Loaded at 0x8000", 13, 10, 0
+loading_msg: db "Loading kernel...", 13, 10, 0
+loaded_msg: db "Kernel loaded successfully!", 13, 10, 0
+disk_error_msg: db "Disk read error! Code: ", 0
+
+; Disk Address Packet for loading kernel
+kernel_address_packet:
+    db 0x10         ; Size of packet (16 bytes)
+    db 0            ; Reserved
+    dw 0x0064       ; Number of sectors to transfer (64 = 32KB)
+    dw 0x0000       ; Transfer buffer (offset)
+    dw 0x1000       ; Transfer buffer (segment) - 0x10000 physical address
+    dq 0x00000003   ; Starting LBA (sector 3, after stage1+stage2)
 
 ; GDT
 gdt_start:
@@ -142,40 +160,7 @@ gdt_end:
 
 gdt_descriptor:
     dw gdt_end - gdt_start - 1 ; Size
-    dd gdt_start                ; Address
-
-bits 32
-protected_mode_start:
-    ; Set up segment registers
-    mov ax, 0x10
-    mov ds, ax
-    mov es, ax
-    mov fs, ax
-    mov gs, ax
-    mov ss, ax
-    
-    ; Set up stack
-    mov esp, 0x90000
-    
-    ; Jump to kernel
-    jmp 0x10000
-
-; Data
-boot_drive: db 0
-welcome_msg: db "Second Stage Bootloader Loaded at 0x8000", 13, 10, 0
-memory_msg: db "Gathering system information...", 13, 10, 0
-loading_msg: db "Loading kernel...", 13, 10, 0
-loaded_msg: db "Kernel loaded successfully!", 13, 10, 0
-disk_error_msg: db "Disk read error! Code: ", 0
-
-; Disk Address Packet for loading kernel
-kernel_address_packet:
-    db 0x10         ; Size of packet (16 bytes)
-    db 0            ; Reserved
-    dw 0x0064       ; Number of sectors to transfer (64 = 32KB)
-    dw 0x0000       ; Transfer buffer (offset)
-    dw 0x1000       ; Transfer buffer (segment) - 0x10000 physical address
-    dq 0x00000003   ; Starting LBA (sector 3, after stage1+stage2)
+    dd gdt_start               ; Address
 
 ; Padding to fill sectors
 times 1024-($-$$) db 0

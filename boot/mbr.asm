@@ -1,6 +1,5 @@
-; First stage bootloader - Hard Drive version
 bits 16
-org 0x7C00
+org 0x7c00
 
 start:
     ; Save boot drive number from DL
@@ -12,7 +11,7 @@ start:
     mov ds, ax
     mov es, ax
     mov ss, ax
-    mov sp, 0x7C00  ; Setup stack
+    mov sp, 0x7c00  ; Setup stack
     sti             ; Re-enable interrupts
     
     ; Print boot message
@@ -25,8 +24,7 @@ start:
     int 0x13
     jc disk_error
     
-    ; Load second stage bootloader using LBA addressing (int 13h, ah=42h)
-    ; This is more reliable for hard drives
+    ; Load second stage bootloader using LBA addressing
     mov si, disk_address_packet
     mov ah, 0x42
     mov dl, [boot_drive]
@@ -50,7 +48,7 @@ disk_error:
 ; Print string function (SI = string address)
 print_string:
     pusha
-    mov ah, 0x0E    ; BIOS teletype function
+    mov ah, 0x0e    ; BIOS teletype function
 .loop:
     lodsb           ; Load byte from SI into AL and increment SI
     test al, al     ; Check if character is 0 (end of string)
@@ -65,11 +63,11 @@ print_string:
 print_hex:
     pusha
     mov cx, 2       ; 2 digits (1 byte)
-    mov ah, 0x0E    ; BIOS teletype
+    mov ah, 0x0e    ; BIOS teletype
 .hex_loop:
     rol al, 4       ; Rotate 4 bits left (get high nibble)
     mov bl, al      ; Copy to BL
-    and bl, 0x0F    ; Mask off high nibble
+    and bl, 0x0f    ; Mask off high nibble
     add bl, '0'     ; Convert to ASCII
     cmp bl, '9'     ; Is it > 9?
     jle .print_digit
@@ -81,7 +79,6 @@ print_hex:
     popa
     ret
 
-; Data
 boot_drive: db 0
 boot_msg:   db "Loading stage 2...", 13, 10, 0
 error_msg:  db 13, 10, "Disk error! Code: ", 0
@@ -96,4 +93,4 @@ disk_address_packet:
     dq 0x00000001   ; Starting LBA (sector 1, 0-based, right after MBR)
 
 times 510-($-$$) db 0   ; Pad to 510 bytes
-dw 0xAA55              ; Boot signature
+dw 0xaa55               ; Boot signature

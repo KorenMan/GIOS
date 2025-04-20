@@ -94,8 +94,6 @@ int test_ata_fat16() {
     }
     
     // Compare buffers
-    //!!!!!!!!!
-    while(1);
     vga_print("Comparing data...\n");
     for (int i = 0; i < TEST_SECTOR_COUNT * SECTOR_SIZE; i++) {
         if (write_buffer[i] != verify_buffer[i]) {

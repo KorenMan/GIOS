@@ -12,10 +12,10 @@ void main() {
 
     mem_init();
     
-    // if (ata_init() != 0) {
-    //     vga_print("Failed to initialize ATA driver\n");
-    //     return;
-    // }
+    if (ata_init() != 0) {
+        vga_print("Failed to initialize ATA driver\n");
+        return;
+    }
     
     //test_ata();
 
