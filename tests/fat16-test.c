@@ -1,375 +1,376 @@
-#include "../drivers/vga-driver.h"
-#include "../drivers/ata-driver.h"
-#include "../lib/string.h"
 #include "../drivers/fat16.h"
+#include "../drivers/vga-driver.h"
+#include "../lib/types.h"
+#include "../lib/memory.h"
+#include "../lib/string.h"
 
-// Buffer sizes
-#define TEST_SECTOR_COUNT 2
-#define SECTOR_SIZE 512
-#define TEST_BUFFER_SIZE 100
+// Define test buffer sizes
+#define TEST_BUFFER_SIZE 1024
+#define FILENAME_MAX_LENGTH 13  // 8.3 format + null terminator
 
-// Test content
-static const char *TEST_FILE_CONTENT = "This is test file 1 content for validating FAT16 operations.";
-static const char *TEST_FILE2_CONTENT = "This is test file 2 with different content to verify multiple files.";
-
-// Device data for FAT16 callbacks
-typedef struct {
-    int bus;
-    int drive;
-} disk_device_t;
-
-// Forward declarations
-int disk_read_sector(void *device_data, u32_t sector, u8_t *buffer, u32_t sector_size);
-int disk_write_sector(void *device_data, u32_t sector, const u8_t *buffer, u32_t sector_size);
-
-// Global variables
-static disk_device_t disk_device = { 0, 0 }; // Primary master
-static fat16_filesystem_t fs;
-
-/**
- * Test ATA and FAT16 functionality
- * 
- * @return 0 if all tests pass, negative value if any test fails
- */
-int test_ata_fat16() {
-    vga_print("ATA and FAT16 Test Starting...\n");
-    
-    // Initialize ATA driver
-    vga_print("Initializing ATA driver...\n");
-    if (ata_init() != 0) {
-        vga_print("FAILED: ATA driver initialization failed\n");
-        return -1;
-    }
-    vga_print("ATA driver initialized\n");
-    
-    // First test basic ATA read/write
-    vga_print("\n--- Testing ATA Read/Write ---\n");
-    
-    // Test buffers
-    u8_t write_buffer[TEST_SECTOR_COUNT * SECTOR_SIZE];
-    u8_t verify_buffer[TEST_SECTOR_COUNT * SECTOR_SIZE];
-    char status_str[16];
-    int result;
-    
-    // Select a test partition (starting at LBA 1000 with 100 sectors)
-    // This should be a non-critical area of the disk for testing
-    if (ata_select_partition(0, 10) != 0) {
-        vga_print("Failed to select partition for ATA test\n");
-        return -2;
-    }
-    
-    // Fill write buffer with test pattern
-    for (int i = 0; i < TEST_SECTOR_COUNT * SECTOR_SIZE; i++) {
-        write_buffer[i] = (u8_t)('a');
-    }
-    
-    // Write test pattern
-    vga_print("Writing test data...\n");
-    result = ata_write_sectors(0, TEST_SECTOR_COUNT, write_buffer);
-    
-    // Check result
-    str_int_to_hex(result, status_str, sizeof(status_str));
-    vga_print("Write result code: ");
-    vga_print(status_str);
-    vga_print("\n");
-    
-    if (result != 0) {
-        vga_print("Write operation failed\n");
-        return -3;
-    }
-    
-    // Read back the sectors we just wrote
-    vga_print("Reading back data for verification...\n");
-    result = ata_read_sectors(0, TEST_SECTOR_COUNT, verify_buffer);
-    
-    // Check result
-    str_int_to_hex(result, status_str, sizeof(status_str));
-    vga_print("Read result code: ");
-    vga_print(status_str);
-    vga_print("\n");
-    
-    if (result != 0) {
-        vga_print("Read operation failed\n");
-        return -4;
-    }
-    
-    // Compare buffers
-    vga_print("Comparing data...\n");
-    for (int i = 0; i < TEST_SECTOR_COUNT * SECTOR_SIZE; i++) {
-        if (write_buffer[i] != verify_buffer[i]) {
-            vga_print("Error: Data mismatch detected.\n");
-            return -5;
-        }
-    }
-    
-    vga_print("ATA read/write test passed\n");
-    
-    // Now test FAT16 functionality
-    vga_print("\n--- Testing FAT16 Filesystem ---\n");
-    
-    // Select FAT16 partition (adjust these values to match your actual FAT16 partition)
-    // For example, if FAT16 partition starts at LBA 2048 with 32768 sectors
-    if (ata_select_partition(2048, 32768) != 0) {
-        vga_print("Failed to select FAT16 partition\n");
-        return -6;
-    }
-    
-    // Initialize the FAT16 filesystem
-    vga_print("Initializing FAT16 filesystem...\n");
-    result = fat16_init(&fs, &disk_device, disk_read_sector, disk_write_sector);
-    if (result != 0) {
-        vga_print("Failed to initialize FAT16 filesystem: ");
-        str_int_to_hex(result, status_str, sizeof(status_str));
-        vga_print(status_str);
-        vga_print("\n");
-        return -7;
-    }
-    
-    // Validate filesystem parameters
-    if (fs.bpb.bytes_per_sector != 512) {
-        vga_print("Unexpected bytes per sector\n");
-        return -8;
-    }
-    
-    // Check filesystem type
-    char fs_type[9] = {0};
-    mem_cpy(fs_type, fs.bpb.fs_type, 8);
-    vga_print("Filesystem type: ");
-    vga_print(fs_type);
-    vga_print("\n");
-    
-    if (str_cmp(fs_type, "FAT16") != 0) {
-        vga_print("Not a FAT16 filesystem\n");
-        return -9;
-    }
-    
-    // Test file operations
-    vga_print("\n--- Testing File Operations ---\n");
-    
-    fat16_file_t file;
-    char read_buffer[TEST_BUFFER_SIZE] = {0};
-    
-    // Test file 1
-    vga_print("Testing file 1 (TEST1.TXT)...\n");
-    
-    // Try to open or create file 1
-    result = fat16_open_file(&fs, "TEST1.TXT", &file);
-    if (result != 0 && result != FAT16_ERROR_NOT_FOUND) {
-        vga_print("Unexpected error opening file 1\n");
-        return -10;
-    }
-    
-    // If file doesn't exist, we would create it
-    // NOTE: Your FAT16 implementation may need a creation function
-    // This is simplified for the test
-    if (result == FAT16_ERROR_NOT_FOUND) {
-        vga_print("File not found, would create here\n");
-        // Placeholder for file creation
-        // For this test, we'll assume open succeeded
+// Helper function to print test results
+void print_test_result(const char* test_name, bool result) {
+    vga_print("[");
+    if (result) {
+        vga_print("PASS");
     } else {
-        vga_print("File exists, continuing with test\n");
+        vga_print("FAIL");
+    }
+    vga_print("] ");
+    vga_print(test_name);
+    vga_print("\n");
+}
+
+// Helper function to print file content
+void print_file_info(file_t* file) {
+    char size_str[16];
+    vga_print("File size: ");
+    str_int_to_hex(file->entry.file_size, size_str, 16);
+    vga_print(size_str);
+    vga_print(" bytes\n");
+    
+    vga_print("First cluster: ");
+    str_int_to_hex(file->entry.first_cluster_low, size_str, 16);
+    vga_print(size_str);
+    vga_print("\n");
+    
+    vga_print("Attributes: ");
+    str_int_to_hex(file->entry.attributes, size_str, 16);
+    vga_print(size_str);
+    vga_print("\n");
+}
+
+// Test FAT16 initialization
+bool test_fat16_init() {
+    return fat16_init();
+}
+
+// Test FAT16 format
+bool test_fat16_format() {
+    return fat16_format();
+}
+
+// Test file creation and closing
+bool test_file_create_close() {
+    const char* test_filename = "TEST.TXT";
+    file_t file = fat16_create(test_filename);
+    
+    if (!file.is_open) {
+        return false;
     }
     
-    // Write to file 1
-    vga_print("Writing to file 1...\n");
-    result = fat16_write_file(&file, TEST_FILE_CONTENT, str_len(TEST_FILE_CONTENT));
-    if (result != str_len(TEST_FILE_CONTENT)) {
-        vga_print("Failed to write to file 1\n");
-        fat16_close_file(&file);
-        return -11;
+    fat16_close(&file);
+    return !file.is_open;
+}
+
+// Test file opening
+bool test_file_open() {
+    const char* test_filename = "TEST.TXT";
+    file_t file = fat16_open(test_filename);
+    
+    if (!file.is_open) {
+        return false;
     }
     
-    // Close file 1
-    fat16_close_file(&file);
+    fat16_close(&file);
+    return true;
+}
+
+// Test file writing
+bool test_file_write() {
+    const char* test_filename = "TEST.TXT";
+    const char* test_data = "This is test data for FAT16 filesystem.";
+    u32_t test_data_len = str_len(test_data);
     
-    // Reopen file 1 for reading
-    vga_print("Reopening file 1 for reading...\n");
-    result = fat16_open_file(&fs, "TEST1.TXT", &file);
-    if (result != 0) {
-        vga_print("Failed to reopen file 1\n");
-        return -12;
+    file_t file = fat16_open(test_filename);
+    if (!file.is_open) {
+        return false;
     }
     
-    // Read from file 1
-    vga_print("Reading from file 1...\n");
-    mem_set(read_buffer, 0, TEST_BUFFER_SIZE);
-    result = fat16_read_file(&file, read_buffer, TEST_BUFFER_SIZE - 1);
-    if (result < 0) {
-        vga_print("Failed to read file 1\n");
-        fat16_close_file(&file);
-        return -13;
+    u32_t bytes_written = fat16_write(&file, test_data, test_data_len);
+    fat16_close(&file);
+    
+    return bytes_written == test_data_len;
+}
+
+// Test file reading
+bool test_file_read() {
+    const char* test_filename = "TEST.TXT";
+    const char* expected_data = "This is test data for FAT16 filesystem.";
+    u32_t expected_len = str_len(expected_data);
+    
+    char buffer[TEST_BUFFER_SIZE];
+    mem_set(buffer, 0, TEST_BUFFER_SIZE);
+    
+    file_t file = fat16_open(test_filename);
+    if (!file.is_open) {
+        return false;
     }
     
-    // Verify file 1 content
-    if (str_cmp(read_buffer, TEST_FILE_CONTENT) != 0) {
-        vga_print("File 1 content verification failed\n");
-        vga_print("Expected: ");
-        vga_print(TEST_FILE_CONTENT);
-        vga_print("\nGot: ");
-        vga_print(read_buffer);
-        vga_print("\n");
-        fat16_close_file(&file);
-        return -14;
+    u32_t bytes_read = fat16_read(&file, buffer, TEST_BUFFER_SIZE);
+    fat16_close(&file);
+    
+    if (bytes_read != expected_len) {
+        return false;
     }
     
-    // Close file 1
-    fat16_close_file(&file);
-    vga_print("File 1 test passed\n");
+    return str_cmp(buffer, expected_data);
+}
+
+// Test file deletion
+bool test_file_delete() {
+    const char* test_filename = "TEST.TXT";
     
-    // Test file 2
-    vga_print("\nTesting file 2 (TEST2.TXT)...\n");
-    
-    // Try to open or create file 2
-    result = fat16_open_file(&fs, "TEST2.TXT", &file);
-    if (result != 0 && result != FAT16_ERROR_NOT_FOUND) {
-        vga_print("Unexpected error opening file 2\n");
-        return -15;
+    bool delete_result = fat16_delete(test_filename);
+    if (!delete_result) {
+        return false;
     }
     
-    // If file doesn't exist, we would create it
-    if (result == FAT16_ERROR_NOT_FOUND) {
-        vga_print("File not found, would create here\n");
-        // Placeholder for file creation
-    } else {
-        vga_print("File exists, continuing with test\n");
+    // Try to open the deleted file - should fail
+    file_t file = fat16_open(test_filename);
+    bool file_gone = !file.is_open;
+    
+    if (file.is_open) {
+        fat16_close(&file);
     }
     
-    // Write to file 2
-    vga_print("Writing to file 2...\n");
-    result = fat16_write_file(&file, TEST_FILE2_CONTENT, str_len(TEST_FILE2_CONTENT));
-    if (result != str_len(TEST_FILE2_CONTENT)) {
-        vga_print("Failed to write to file 2\n");
-        fat16_close_file(&file);
-        return -16;
+    return file_gone;
+}
+
+// Test file renaming
+bool test_file_rename() {
+    const char* old_name = "OLD.TXT";
+    const char* new_name = "NEW.TXT";
+    const char* test_content = "This is a file to test renaming.";
+    
+    // Create a test file
+    file_t file = fat16_create(old_name);
+    if (!file.is_open) {
+        return false;
     }
     
-    // Close file 2
-    fat16_close_file(&file);
+    fat16_write(&file, test_content, str_len(test_content));
+    fat16_close(&file);
     
-    // Reopen file 2 for reading
-    vga_print("Reopening file 2 for reading...\n");
-    result = fat16_open_file(&fs, "TEST2.TXT", &file);
-    if (result != 0) {
-        vga_print("Failed to reopen file 2\n");
-        return -17;
+    // Rename the file
+    bool rename_result = fat16_rename(old_name, new_name);
+    if (!rename_result) {
+        return false;
     }
     
-    // Read from file 2
-    vga_print("Reading from file 2...\n");
-    mem_set(read_buffer, 0, TEST_BUFFER_SIZE);
-    result = fat16_read_file(&file, read_buffer, TEST_BUFFER_SIZE - 1);
-    if (result < 0) {
-        vga_print("Failed to read file 2\n");
-        fat16_close_file(&file);
-        return -18;
+    // Check that the old file doesn't exist anymore
+    file_t old_file = fat16_open(old_name);
+    if (old_file.is_open) {
+        fat16_close(&old_file);
+        return false;
     }
     
-    // Verify file 2 content
-    if (str_cmp(read_buffer, TEST_FILE2_CONTENT) != 0) {
-        vga_print("File 2 content verification failed\n");
-        fat16_close_file(&file);
-        return -19;
+    // Check that the new file exists and has the same content
+    file_t new_file = fat16_open(new_name);
+    if (!new_file.is_open) {
+        return false;
     }
     
-    // Close file 2
-    fat16_close_file(&file);
-    vga_print("File 2 test passed\n");
+    char buffer[TEST_BUFFER_SIZE];
+    mem_set(buffer, 0, TEST_BUFFER_SIZE);
     
-    // Test directory reading
-    vga_print("\n--- Testing Directory Listing ---\n");
+    u32_t bytes_read = fat16_read(&new_file, buffer, TEST_BUFFER_SIZE);
+    fat16_close(&new_file);
     
-    fat16_dir_t dir;
-    fat16_dir_entry_t entry;
-    bool found_file1 = false;
-    bool found_file2 = false;
+    return bytes_read == str_len(test_content) && str_cmp(buffer, test_content);
+}
+
+// Test large file operations (multiple clusters)
+bool test_large_file() {
+    const char* filename = "LARGE.TXT";
+    char large_buffer[TEST_BUFFER_SIZE];
     
-    // Open root directory
-    result = fat16_open_dir(&fs, "/", &dir);
-    if (result != 0) {
-        vga_print("Failed to open root directory\n");
-        return -20;
+    // Create a pattern in the buffer
+    for (u32_t i = 0; i < TEST_BUFFER_SIZE; i++) {
+        large_buffer[i] = 'A' + (i % 26);
     }
     
-    // List directory contents
-    vga_print("Directory contents:\n");
-    while (fat16_read_dir(&dir, &entry) == 0) {
-        // Skip deleted entries and empty entries
-        if (entry.name[0] == 0 || entry.name[0] == 0xE5) {
-            continue;
+    // Create and write to a large file
+    file_t file = fat16_create(filename);
+    if (!file.is_open) {
+        return false;
+    }
+    
+    u32_t total_written = 0;
+    u32_t write_size = TEST_BUFFER_SIZE;
+    // Write 4 times to ensure we span multiple clusters
+    for (int i = 0; i < 4; i++) {
+        u32_t bytes_written = fat16_write(&file, large_buffer, write_size);
+        if (bytes_written != write_size) {
+            fat16_close(&file);
+            return false;
+        }
+        total_written += bytes_written;
+    }
+    
+    fat16_close(&file);
+    
+    // Read back the file and verify
+    file = fat16_open(filename);
+    if (!file.is_open) {
+        return false;
+    }
+    
+    char read_buffer[TEST_BUFFER_SIZE];
+    bool read_matches = true;
+    
+    for (int i = 0; i < 4; i++) {
+        mem_set(read_buffer, 0, TEST_BUFFER_SIZE);
+        u32_t bytes_read = fat16_read(&file, read_buffer, TEST_BUFFER_SIZE);
+        
+        if (bytes_read != TEST_BUFFER_SIZE) {
+            read_matches = false;
+            break;
         }
         
-        // Extract filename (8.3 format)
-        char filename[13] = {0};
-        int i, j = 0;
-        
-        // Get filename portion
-        for (i = 0; i < 8 && entry.name[i] != ' '; i++) {
-            filename[j++] = entry.name[i];
-        }
-        
-        // Add extension if present
-        if (entry.ext[0] != ' ') {
-            filename[j++] = '.';
-            for (i = 0; i < 3 && entry.ext[i] != ' '; i++) {
-                filename[j++] = entry.ext[i];
+        // Compare the pattern
+        for (u32_t j = 0; j < TEST_BUFFER_SIZE; j++) {
+            if (read_buffer[j] != ('A' + (j % 26))) {
+                read_matches = false;
+                break;
             }
         }
         
-        // Display file info
-        vga_print("- ");
-        vga_print(filename);
-        vga_print(" (");
-        str_int_to_hex(entry.file_size, status_str, sizeof(status_str));
-        vga_print(status_str);
-        vga_print(" bytes)\n");
-        
-        // Check if our test files are found
-        if (str_cmp(filename, "TEST1.TXT") == 0) {
-            found_file1 = true;
-        } else if (str_cmp(filename, "TEST2.TXT") == 0) {
-            found_file2 = true;
+        if (!read_matches) {
+            break;
         }
     }
     
-    // Close directory
-    fat16_close_dir(&dir);
+    fat16_close(&file);
+    fat16_delete(filename);
     
-    // Check if test files were found
-    if (!found_file1) {
-        vga_print("TEST1.TXT not found in directory listing\n");
-        return -21;
-    }
-    
-    if (!found_file2) {
-        vga_print("TEST2.TXT not found in directory listing\n");
-        return -22;
-    }
-    
-    vga_print("Directory listing test passed\n");
-    
-    // All tests passed
-    vga_print("\n=== All Tests Passed Successfully! ===\n");
-    return 0;
+    return read_matches;
 }
 
-// FAT16 callback for reading sectors via ATA
-int disk_read_sector(void *device_data, u32_t sector, u8_t *buffer, u32_t sector_size) {
-    disk_device_t *disk = (disk_device_t *)device_data;
+// Test sequential file creation to test directory entries
+bool test_multiple_files() {
+    const char* base_name = "FILE";
+    char filename[FILENAME_MAX_LENGTH];
+    const char* test_content = "Test content";
+    bool all_succeeded = true;
     
-    // Calculate absolute LBA based on current partition
-    u32_t abs_lba = ata_state.current_partition.start_lba + sector;
+    // Create 10 files
+    for (int i = 0; i < 10; i++) {
+        // Create filename like FILE0.TXT, FILE1.TXT, etc.
+        mem_set(filename, 0, FILENAME_MAX_LENGTH);
+        mem_cpy(filename, base_name, 4);
+        filename[4] = '0' + i;
+        filename[5] = '.';
+        filename[6] = 'T';
+        filename[7] = 'X';
+        filename[8] = 'T';
+        
+        file_t file = fat16_create(filename);
+        if (!file.is_open) {
+            all_succeeded = false;
+            break;
+        }
+        
+        u32_t bytes_written = fat16_write(&file, test_content, str_len(test_content));
+        if (bytes_written != str_len(test_content)) {
+            all_succeeded = false;
+        }
+        
+        fat16_close(&file);
+        
+        if (!all_succeeded) {
+            break;
+        }
+    }
     
-    // Read the sector using ATA driver
-    return ata_read_sectors(abs_lba, 1, buffer);
+    // Open and verify all files
+    if (all_succeeded) {
+        for (int i = 0; i < 10; i++) {
+            mem_set(filename, 0, FILENAME_MAX_LENGTH);
+            mem_cpy(filename, base_name, 4);
+            filename[4] = '0' + i;
+            filename[5] = '.';
+            filename[6] = 'T';
+            filename[7] = 'X';
+            filename[8] = 'T';
+            
+            file_t file = fat16_open(filename);
+            if (!file.is_open) {
+                all_succeeded = false;
+                break;
+            }
+            
+            char buffer[TEST_BUFFER_SIZE];
+            mem_set(buffer, 0, TEST_BUFFER_SIZE);
+            
+            u32_t bytes_read = fat16_read(&file, buffer, TEST_BUFFER_SIZE);
+            if (bytes_read != str_len(test_content) || !str_cmp(buffer, test_content)) {
+                all_succeeded = false;
+            }
+            
+            fat16_close(&file);
+            
+            if (!all_succeeded) {
+                break;
+            }
+        }
+    }
+    
+    // Clean up all files
+    for (int i = 0; i < 10; i++) {
+        mem_set(filename, 0, FILENAME_MAX_LENGTH);
+        mem_cpy(filename, base_name, 4);
+        filename[4] = '0' + i;
+        filename[5] = '.';
+        filename[6] = 'T';
+        filename[7] = 'X';
+        filename[8] = 'T';
+        
+        fat16_delete(filename);
+    }
+    
+    return all_succeeded;
 }
 
-// FAT16 callback for writing sectors via ATA
-int disk_write_sector(void *device_data, u32_t sector, const u8_t *buffer, u32_t sector_size) {
-    disk_device_t *disk = (disk_device_t *)device_data;
+void run_all_tests() {
+    vga_clear_screen();
+    vga_print("=== FAT16 FILESYSTEM TESTER ===\n\n");
     
-    // Calculate absolute LBA based on current partition
-    u32_t abs_lba = ata_state.current_partition.start_lba + sector;
+    bool init_result = test_fat16_init();
+    print_test_result("FAT16 Initialization", init_result);
     
-    // Write the sector using ATA driver
-    return ata_write_sectors(abs_lba, 1, (void *)buffer);
+    if (!init_result) {
+        vga_print("\nInitialization failed. Attempting to format...\n");
+        bool format_result = test_fat16_format();
+        print_test_result("FAT16 Format", format_result);
+        
+        if (!format_result) {
+            vga_print("\nFormat failed. Cannot continue tests.\n");
+            return;
+        }
+        
+        // Re-initialize after format
+        init_result = test_fat16_init();
+        print_test_result("FAT16 Re-initialization", init_result);
+        
+        if (!init_result) {
+            vga_print("\nRe-initialization failed. Cannot continue tests.\n");
+            return;
+        }
+    }
+    
+    print_test_result("File Create and Close", test_file_create_close());
+    print_test_result("File Open", test_file_open());
+    print_test_result("File Write", test_file_write());
+    print_test_result("File Read", test_file_read());
+    print_test_result("File Rename", test_file_rename());
+    print_test_result("File Delete", test_file_delete());
+    print_test_result("Large File Operations", test_large_file());
+    print_test_result("Multiple Files", test_multiple_files());
+    
+    vga_print("\n=== FAT16 TESTING COMPLETED ===\n");
+}
+
+void test_fat16() {
+    run_all_tests();
 }

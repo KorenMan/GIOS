@@ -14,8 +14,8 @@ void str_int_to_hex(int num, char *str, int size) {
     }
 
     // Convert integer to hexadecimal
-    while (num > 0 && i < size - 1) {  // Ensure we don't write beyond the buffer
-        str[i++] = hex_digits[num % 16];
+    for (; i < size - 1; i++) {
+        str[i] = hex_digits[num % 16];
         num /= 16;
     }
 
@@ -59,9 +59,9 @@ bool str_cmp(const char *str1, const char *str2) {
     return true;
 }
 
-char str_to_upper(char c) {
-    if ('a' < c < 'z') {
-        return c - 'a' + 'A';
+char str_to_upper(char chr) {
+    if ('a' < chr < 'z') {
+        return chr - 'a' + 'A';
     }
-    return c;
+    return chr;
 }

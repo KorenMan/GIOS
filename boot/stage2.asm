@@ -130,7 +130,7 @@ disk_error_msg: db "Disk read error! Code: ", 0
 kernel_address_packet:
     db 0x10         ; Size of packet (16 bytes)
     db 0            ; Reserved
-    dw 0x0064       ; Number of sectors to transfer (64 = 32KB)
+    dw 0x0080      ; Number of sectors to transfer (64 = 32KB)
     dw 0x0000       ; Transfer buffer (offset)
     dw 0x1000       ; Transfer buffer (segment) - 0x10000 physical address
     dq 0x00000003   ; Starting LBA (sector 3, after stage1+stage2)

@@ -5,7 +5,7 @@
 #include "../lib/memory.h"
 
 extern void test_ata();
-extern int test_ata_fat16();
+extern void test_fat16();
 
 void main() {
     vga_clear_screen();
@@ -17,13 +17,13 @@ void main() {
         return;
     }
     
-    //test_ata();
+    test_ata();
 
-    test_ata_fat16();
+    test_fat16();
 
-    // enabling interrupts
-    isr_install();
-    keyboard_init();
+   // enabling interrupts
+   isr_install();
+   keyboard_init();
 
-    while (1);
+   while (1);
 }

@@ -57,7 +57,7 @@ int ata_identify_drive(int bus, int drive, ata_device_info_t *info) {
         return -1;  // Drive does not exist or is not an ATA drive 
     }
     
-    // We have an ATA device 
+    // have an ATA device 
     info->type = DEVICE_TYPE_ATA;
     
     // Check if LBA28 is supported and get sector count 
@@ -80,8 +80,8 @@ int ata_identify_drive(int bus, int drive, ata_device_info_t *info) {
     
     // Get UDMA modes 
     if (identify_data[88] != 0) {
-        info->udma_supported = identify_data[88] & 0xFF;
-        info->udma_active = (identify_data[88] >> 8) & 0xFF;
+        info->udma_supported = identify_data[88] & 0xff;
+        info->udma_active = (identify_data[88] >> 8) & 0xff;
     }
     
     // Check for 80-conductor cable (master only) 
@@ -160,59 +160,57 @@ int ata_select_partition(u32_t start_lba, u32_t sector_count) {
 // Read sectors from the current partition 
 int ata_read_sectors(u32_t lba, int count, void *buffer) {
     u32_t absolute_lba;
-    int i;
-    
-    // Validate parameters 
+   
+    // Validate parameters
     if (count <= 0 || count > 256) {
-        return -1;  // Invalid count (0 means 256 sectors, but we don't support that) 
+        return -1;  // Invalid count
     }
-    
+   
     if (lba + count > ata_state.current_partition.sector_count) {
-        return -2;  // Read beyond partition boundary 
+        return -2;  // Read beyond partition boundary
     }
-    
-    // Convert relative LBA to absolute LBA 
+   
+    // Convert relative LBA to absolute LBA
     absolute_lba = ata_state.current_partition.start_lba + lba;
-    
-    // Ensure we're within LBA28 range 
+ 
+    // Ensure we're within LBA28 range
     if (absolute_lba + count > MAX_LBA28_SECTORS) {
-        return -3;  // Beyond LBA28 limit 
+        return -3;  // Beyond LBA28 limit
     }
-    
-    // Select the correct drive (we use primary master for simplicity) 
-    _select_drive(0, 0);
-    
-    // Wait for drive to be ready 
+
+    // Use the drive from ata_state instead of hardcoded 0
+    _select_drive(ata_state.current_drive, 0);
+   
+    // Wait for drive to be ready
     _wait_ready();
-    
-    // Set up registers for the read operation 
+   
+    // Set up registers for the read operation
     port_byte_out(ata_state.io_base + ATA_SECTOR_COUNT, count);
-    port_byte_out(ata_state.io_base + ATA_LBA_LO, absolute_lba & 0xFF);
-    port_byte_out(ata_state.io_base + ATA_LBA_MID, (absolute_lba >> 8) & 0xFF);
-    port_byte_out(ata_state.io_base + ATA_LBA_HI, (absolute_lba >> 16) & 0xFF);
-    
-    // Set drive/head register with the highest 4 bits of LBA and drive select 
-    port_byte_out(ata_state.io_base + ATA_DRIVE_HEAD, 
-              ATA_ALWAYS_SET_BITS | ATA_LBA_BIT | ((absolute_lba >> 24) & 0x0F));
-    
-    // Send the read command 
+    port_byte_out(ata_state.io_base + ATA_LBA_LO, absolute_lba & 0xff);
+    port_byte_out(ata_state.io_base + ATA_LBA_MID, (absolute_lba >> 8) & 0xff);
+    port_byte_out(ata_state.io_base + ATA_LBA_HI, (absolute_lba >> 16) & 0xff);
+   
+    // Set drive/head register with the highest 4 bits of LBA and drive select
+    port_byte_out(ata_state.io_base + ATA_DRIVE_HEAD,
+              ATA_ALWAYS_SET_BITS | ATA_LBA_BIT | ((absolute_lba >> 24) & 0x0f));
+   
+    // Send the read command
     port_byte_out(ata_state.io_base + ATA_COMMAND, ATA_CMD_READ_PIO);
-    
-    // Read all the sectors 
-    for (i = 0; i < count; i++) {
-        // Wait for data to be ready 
+
+    // Read all the sectors
+    for (int i = 0; i < count; i++) {
+        // Wait for data to be ready
         if (_poll_status() != 0) {
-            return -4;  // Error during read 
+            return -4;  // Error during read
         }
-        
-        // Read a sector (256 words = 512 bytes) 
+       
         _insw(ata_state.io_base + ATA_DATA, buffer, 256);
-        
-        // Move buffer pointer 
+       
+        // Move buffer pointer
         buffer = (u8_t *)buffer + 512;
     }
-    
-    return 0;  // Success 
+   
+    return 0;  // Success
 }
 
 // Write sectors to the current partition 
@@ -222,7 +220,7 @@ int ata_write_sectors(u32_t lba, int count, void *buffer) {
     
     // Validate parameters 
     if (count <= 0 || count > 256) {
-        return -1;  // Invalid count (0 means 256 sectors, but we don't support that) 
+        return -1;  // Invalid count  
     }
     
     if (lba + count > ata_state.current_partition.sector_count) {
@@ -237,7 +235,7 @@ int ata_write_sectors(u32_t lba, int count, void *buffer) {
         return -3;  // Beyond LBA28 limit 
     }
     
-    // Select the correct drive (we use primary master for simplicity) 
+    // Select the correct drive 
     _select_drive(0, 0);
     
     // Wait for drive to be ready 
@@ -245,13 +243,13 @@ int ata_write_sectors(u32_t lba, int count, void *buffer) {
     
     // Set up registers for the write operation 
     port_byte_out(ata_state.io_base + ATA_SECTOR_COUNT, count);
-    port_byte_out(ata_state.io_base + ATA_LBA_LO, absolute_lba & 0xFF);
-    port_byte_out(ata_state.io_base + ATA_LBA_MID, (absolute_lba >> 8) & 0xFF);
-    port_byte_out(ata_state.io_base + ATA_LBA_HI, (absolute_lba >> 16) & 0xFF);
+    port_byte_out(ata_state.io_base + ATA_LBA_LO, absolute_lba & 0xff);
+    port_byte_out(ata_state.io_base + ATA_LBA_MID, (absolute_lba >> 8) & 0xff);
+    port_byte_out(ata_state.io_base + ATA_LBA_HI, (absolute_lba >> 16) & 0xff);
     
     // Set drive/head register with the highest 4 bits of LBA and drive select 
     port_byte_out(ata_state.io_base + ATA_DRIVE_HEAD, 
-              ATA_ALWAYS_SET_BITS | ATA_LBA_BIT | ((absolute_lba >> 24) & 0x0F));
+              ATA_ALWAYS_SET_BITS | ATA_LBA_BIT | ((absolute_lba >> 24) & 0x0f));
     
     // Send the write command 
     port_byte_out(ata_state.io_base + ATA_COMMAND, ATA_CMD_WRITE_PIO);
