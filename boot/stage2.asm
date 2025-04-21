@@ -57,6 +57,35 @@ disk_error:
     call print_hex
     jmp $
 
+; Switch to protected mode
+switch_to_protected_mode:
+    cli                     ; Disable interrupts
+    lgdt [gdt_descriptor]   ; Load GDT
+    
+    ; Enable protected mode
+    mov eax, cr0
+    or al, 1
+    mov cr0, eax
+    
+    ; Far jump to 32-bit code
+    jmp 0x08:protected_mode_start
+
+bits 32
+protected_mode_start:
+    ; Set up segment registers
+    mov ax, 0x10
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    mov ss, ax
+    
+    ; Set up stack
+    mov esp, 0x90000
+    
+    ; Jump to kernel
+    jmp 0x10000
+
 ; Print string function (SI = string address)
 print_string:
     pusha
@@ -91,35 +120,6 @@ print_hex:
     popa
     ret
 
-; Switch to protected mode
-switch_to_protected_mode:
-    cli                     ; Disable interrupts
-    lgdt [gdt_descriptor]   ; Load GDT
-    
-    ; Enable protected mode
-    mov eax, cr0
-    or al, 1
-    mov cr0, eax
-    
-    ; Far jump to 32-bit code
-    jmp 0x08:protected_mode_start
-
-bits 32
-protected_mode_start:
-    ; Set up segment registers
-    mov ax, 0x10
-    mov ds, ax
-    mov es, ax
-    mov fs, ax
-    mov gs, ax
-    mov ss, ax
-    
-    ; Set up stack
-    mov esp, 0x90000
-    
-    ; Jump to kernel
-    jmp 0x10000
-
 boot_drive: db 0
 welcome_msg: db "Second Stage Bootloader Loaded at 0x8000", 13, 10, 0
 loading_msg: db "Loading kernel...", 13, 10, 0
@@ -142,7 +142,7 @@ gdt_start:
     dd 0
     
     ; Code segment descriptor
-    dw 0xFFFF    ; Limit (bits 0-15)
+    dw 0xffff    ; Limit (bits 0-15)
     dw 0         ; Base (bits 0-15)
     db 0         ; Base (bits 16-23)
     db 10011010b ; Access byte
@@ -150,7 +150,7 @@ gdt_start:
     db 0         ; Base (bits 24-31)
     
     ; Data segment descriptor
-    dw 0xFFFF    ; Limit (bits 0-15)
+    dw 0xffff    ; Limit (bits 0-15)
     dw 0         ; Base (bits 0-15)
     db 0         ; Base (bits 16-23)
     db 10010010b ; Access byte

@@ -520,15 +520,13 @@ static u16_t _create_fat_time() {
 }
 
 // Convert 8.3 filename to FAT format (space padded)
-static void _filename_to_fat83(const char *filename, u8_t *name, u8_t *ext) {
-    int i, j;
-    
+static void _filename_to_fat83(const char *filename, u8_t *name, u8_t *ext) {  
     // Initialize with spaces
-    for (i = 0; i < 8; i++) name[i] = ' ';
-    for (i = 0; i < 3; i++) ext[i] = ' ';
+    for (int i = 0; i < 8; i++) name[i] = ' ';
+    for (int i = 0; i < 3; i++) ext[i] = ' ';
     
     // Copy name part
-    for (i = 0; i < 8 && filename[i] && filename[i] != '.'; i++) {
+    for (int i = 0; i < 8 && filename[i] && filename[i] != '.'; i++) {
         name[i] = str_to_upper(filename[i]);
     }
     
@@ -537,8 +535,8 @@ static void _filename_to_fat83(const char *filename, u8_t *name, u8_t *ext) {
     if (extension) {
         extension++; // Skip the '.'
         // Copy extension part
-        for (j = 0; j < 3 && extension[j]; j++) {
-            ext[j] = str_to_upper(extension[j]);
+        for (int i = 0; i < 3 && extension[i]; i++) {
+            ext[i] = str_to_upper(extension[i]);
         }
     }
 }
@@ -592,7 +590,7 @@ static void _update_fat_entry(u16_t cluster, u16_t value) {
     ata_read_sectors(fat_sector, 1, temp_sector);
     
     // Update the FAT entry
-   * ((u16_t *)(temp_sector + entry_offset)) = value;
+   *((u16_t *)(temp_sector + entry_offset)) = value;
     
     // Write the updated sector back
     ata_write_sectors(fat_sector, 1, temp_sector);
@@ -669,8 +667,8 @@ static bool _find_free_dir_entry(u32_t *dir_sector, u32_t *dir_offset) {
         for (u32_t j = 0; j < ENTRIES_PER_SECTOR; j++) {
             // Check for unused entry
             if (entries[j].filename[0] == 0 || entries[j].filename[0] == 0xe5) {
-               * dir_sector = fat16_info.root_dir_start_sector + i;
-               * dir_offset = j * DIR_ENTRY_SIZE;
+               *dir_sector = fat16_info.root_dir_start_sector + i;
+               *dir_offset = j * DIR_ENTRY_SIZE;
                 return true;
             }
         }
