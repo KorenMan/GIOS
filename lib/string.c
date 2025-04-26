@@ -29,6 +29,26 @@ void str_int_to_hex(int num, char *str, int size) {
     }
 }
 
+void str_int_to_dec(int num, char *str, int size) {
+    char hex_digits[] = "0123456789";
+    int i = 0;
+
+    // Convert integer to hexadecimal
+    for (; i < size - 1; i++) {
+        str[i] = hex_digits[num % 10];
+        num /= 10;
+    }
+
+    str[i] = '\0';
+
+    // Reverse the string (since we filled it backwards)
+    for (int j = 0, k = i - 1; j < k; j++, k--) {
+        char temp = str[j];
+        str[j] = str[k];
+        str[k] = temp;
+    }
+}
+
 char *str_chr(const char *str, int ch) {
     while (*str) {
         if (*str == (char)ch) {
@@ -60,7 +80,7 @@ bool str_cmp(const char *str1, const char *str2) {
 }
 
 char str_to_upper(char chr) {
-    if ('a' < chr < 'z') {
+    if (chr >= 'a' && chr <= 'z') {
         return chr - 'a' + 'A';
     }
     return chr;

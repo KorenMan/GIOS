@@ -17,7 +17,7 @@ void test_ata() {
     vga_print("ATA Write Test Starting...\n");
     
     // Select a test partition (for example, starting at LBA 1000 with 100 sectors)
-    if (ata_select_partition(0, 10) != 0) {
+    if (ata_select_partition(0, 1000) != 0) {
         vga_print("Failed to select partition\n");
         return;
     }
