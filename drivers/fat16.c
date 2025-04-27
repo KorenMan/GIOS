@@ -1033,7 +1033,7 @@ bool fat16_delete_directory(const char *dir_name) {
         return false;
     }
     
-    // Check for any entries (skip "." and ".." entries)
+    // Check for any entries 
     dir_entry_t *entries = (dir_entry_t*)buffer;
     for (int i = 0; i < ENTRIES_PER_SECTOR; i++) {
         // Skip . and .. directories (first two entries)
@@ -1063,7 +1063,7 @@ bool fat16_delete_directory(const char *dir_name) {
         // Get FAT entry value
         fat_entry = *(u16_t*)&buffer[ent_offset];
         
-        // If this is the end of chain, we're done checking
+        // End of chain
         if (fat_entry >= 0xfff8) {
             break;
         }
