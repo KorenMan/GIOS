@@ -9,7 +9,7 @@
 #define FILENAME_MAX_LENGTH 13  // 8.3 format + null terminator
 
 // Helper function to print test results
-void print_test_result(const char* test_name, bool result) {
+void print_test_result(const char *test_name, bool result) {
     vga_print("[");
     if (result) {
         vga_print("PASS");
@@ -22,7 +22,7 @@ void print_test_result(const char* test_name, bool result) {
 }
 
 // Helper function to print file content
-void print_file_info(file_t* file) {
+void print_file_info(file_t *file) {
     char size_str[16];
     vga_print("File size: ");
     str_int_to_hex(file->entry.file_size, size_str, 16);
@@ -52,7 +52,7 @@ bool test_fat16_format() {
 
 // Test file creation and closing
 bool test_file_create_close() {
-    const char* test_filename = "TEST.TXT";
+    const char *test_filename = "TEST.TXT";
     file_t file = fat16_create(test_filename);
 
     if (!file.is_open) {
@@ -65,7 +65,7 @@ bool test_file_create_close() {
 
 // Test file opening
 bool test_file_open() {
-    const char* test_filename = "TEST.TXT";
+    const char *test_filename = "TEST.TXT";
     file_t file = fat16_open(test_filename);
     
     if (!file.is_open) {
@@ -78,8 +78,8 @@ bool test_file_open() {
 
 // Test file writing
 bool test_file_write() {
-    const char* test_filename = "WRITE.TXT";
-    const char* test_data = "This is test data for FAT16 fs.";
+    const char *test_filename = "WRITE.TXT";
+    const char *test_data = "This is test data for FAT16 fs.";
     u32_t test_data_len = str_len(test_data);
     file_t file = fat16_create(test_filename);
     if (!file.is_open) {
@@ -95,8 +95,8 @@ bool test_file_write() {
 
 // Test file reading
 bool test_file_read() {
-    const char* test_filename = "WRITE.TXT";
-    const char* expected_data = "This is test data for FAT16 fs.";
+    const char *test_filename = "WRITE.TXT";
+    const char *expected_data = "This is test data for FAT16 fs.";
     u32_t expected_len = str_len(expected_data);
     
     char buffer[TEST_BUFFER_SIZE];
@@ -119,7 +119,7 @@ bool test_file_read() {
 
 // Test file deletion
 bool test_file_delete() {
-    const char* test_filename = "TEST.TXT";
+    const char *test_filename = "TEST.TXT";
     file_t filet = fat16_create(test_filename);
 
     bool delete_result = fat16_delete(test_filename);
@@ -139,7 +139,7 @@ bool test_file_delete() {
     return file_gone;
 }
 bool test_large_file() {
-    const char* filename = "LARGE.TXT";
+    const char *filename = "LARGE.TXT";
     char large_buffer[TEST_BUFFER_SIZE];
     
     // Create a pattern in the buffer
@@ -206,9 +206,9 @@ bool test_large_file() {
 
 // Test file renaming
 bool test_file_rename() {
-    const char* old_name = "OLD.TXT";
-    const char* new_name = "NEW.TXT";
-    const char* test_content = "This is a file to test renaming.";
+    const char *old_name = "OLD.TXT";
+    const char *new_name = "NEW.TXT";
+    const char *test_content = "This is a file to test renaming.";
     
     // Create a test file
     file_t file = fat16_create(old_name);
@@ -248,9 +248,9 @@ bool test_file_rename() {
 
 // Test sequential file creation to test directory entries
 bool test_multiple_files() {
-    const char* base_name = "FILE";
+    const char *base_name = "FILE";
     char filename[FILENAME_MAX_LENGTH];
-    const char* test_content = "Test content";
+    const char *test_content = "Test content";
     bool all_succeeded = true;
     
     // Create 10 files

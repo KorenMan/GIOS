@@ -85,3 +85,41 @@ char str_to_upper(char chr) {
     }
     return chr;
 }
+
+char *str_tok(char *str, const char *delim) {
+    static char *next;
+    if (str) {
+        next = str;
+    }
+    if (!next) {
+        return '\0';
+    }
+
+    char *start = next;
+
+    // Skip leading delimiters
+    while (*start && str_chr(delim, *start)) {
+        start++;
+    }
+
+    if (*start == '\0') {
+        next = '\0';
+        return '\0';
+    }
+
+    char *token = start;
+
+    // Find end of token
+    while (*next && !str_chr(delim, *next)) {
+        next++;
+    }
+
+    if (*next) {
+        *next = '\0';
+        next++;
+    } else {
+        next = '\0';
+    }
+
+    return token;
+}
