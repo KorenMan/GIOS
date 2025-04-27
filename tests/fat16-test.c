@@ -245,14 +245,14 @@ bool test_directory_navigation() {
     // Check path
     const char *path = fat16_get_path();
     if (path == NULL || !str_cmp(path, "/DIR1")) {
+        vga_print(path);
         return false;
     }
-    
     // Create subdirectory within dir1
     if (!fat16_create_directory(subdir)) {
         return false;
     }
-    
+
     // Enter subdirectory
     if (!fat16_change_directory(subdir)) {
         return false;

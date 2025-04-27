@@ -962,6 +962,60 @@ bool fat16_create_directory(const char *dirname) {
 bool fat16_change_directory(const char *path) {
     u16_t new_dir_cluster;
     
+    // Handle special cases first
+    if (str_cmp(path, ".") == true) {
+        // "." means current directory, no change needed
+        return true;
+    }
+    
+    if (str_cmp(path, "..") == true) {
+        // ".." means parent directory
+        // Special case for root directory
+        if (str_cmp(current_path, "/") == true) {
+            // Already at root, nothing to do
+            return true;
+        }
+        
+        // Find the last '/' in the current path
+        int i = str_len(current_path) - 1;
+        while (i > 0 && current_path[i] != '/') {
+            i--;
+        }
+        
+        // Truncate the path at the last '/'
+        if (i == 0) {
+            // We're directly under root, just set to "/"
+            current_path[0] = '/';
+            current_path[1] = '\0';
+            
+            current_dir_cluster = 0; // Special value for root directory
+        } else {
+            // Get the parent path
+            char parent_path[256];
+            mem_cpy(parent_path, current_path, i);
+            parent_path[i] = '\0';
+            
+            // Find the parent directory's cluster
+            if (!_find_dir_by_path(parent_path, &new_dir_cluster)) {
+                return false;
+            }
+            
+            // Update current directory information
+            current_dir_cluster = new_dir_cluster;
+            
+            // Update the path
+            current_path[i] = '\0';
+            if (i == 0) {
+                // Make sure we have at least "/"
+                current_path[0] = '/';
+                current_path[1] = '\0';
+            }
+        }
+        
+        return true;
+    }
+    
+    // Regular directory change
     if (!_find_dir_by_path(path, &new_dir_cluster)) {
         return false;  // Directory not found
     }
@@ -980,7 +1034,7 @@ bool fat16_change_directory(const char *path) {
         if (str_cmp(current_path, "/") == true) {
             // Create string like "/path"
             temp_path[0] = '/';
-            mem_cpy(&temp_path[1], path, 255);
+            mem_cpy(&temp_path[1], path, 254);
             temp_path[255] = '\0';
         } else {
             // Create string like "/current/path"
