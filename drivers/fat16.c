@@ -632,7 +632,7 @@ void fat16_list_files() {
     
     // Loop through all sectors in the directory
     while (sector_index < sector_count) {
-        if (!ata_read_sectors(next_sector, 1, temp_sector)) {
+        if (ata_read_sectors(next_sector, 1, temp_sector) < 0) {
             vga_print("Error reading directory sector\n");
             return;
         }
@@ -897,14 +897,14 @@ bool fat16_create_directory(const char *dirname) {
     
     // Write directory entry
     u8_t buffer[SECTOR_SIZE];
-    if (!ata_read_sectors(dir_sector, 1, buffer)) {
+    if (ata_read_sectors(dir_sector, 1, buffer) < 0) {
         _update_fat_entry(first_cluster, FAT_ENTRY_FREE);
         return false;
     }
     
     mem_cpy(&buffer[dir_offset], &new_dir, sizeof(dir_entry_t));
     
-    if (!ata_write_sectors(dir_sector, 1, buffer)) {
+    if (ata_write_sectors(dir_sector, 1, buffer) < 0) {
         _update_fat_entry(first_cluster, FAT_ENTRY_FREE);
         return false;
     }
@@ -921,6 +921,7 @@ bool fat16_create_directory(const char *dirname) {
     for (int i = 0; i < 3; i++) {
         dot_entry->extension[i] = ' ';
     }
+
     dot_entry->attributes = ATTR_DIRECTORY;
     dot_entry->creation_date = new_dir.creation_date;
     dot_entry->creation_time = new_dir.creation_time;
@@ -939,6 +940,7 @@ bool fat16_create_directory(const char *dirname) {
     for (int i = 0; i < 3; i++) {
         dotdot_entry->extension[i] = ' ';
     }
+
     dotdot_entry->attributes = ATTR_DIRECTORY;
     dotdot_entry->creation_date = new_dir.creation_date;
     dotdot_entry->creation_time = new_dir.creation_time;
@@ -949,11 +951,11 @@ bool fat16_create_directory(const char *dirname) {
     
     // Write the directory contents
     u32_t dir_first_sector = _cluster_to_sector(first_cluster);
-    if (!ata_write_sectors(dir_first_sector, 1, buffer)) {
+    if (ata_write_sectors(dir_first_sector, 1, buffer) < 0) {
         _update_fat_entry(first_cluster, FAT_ENTRY_FREE);
         return false;
     }
-    
+
     return true;
 }
 
@@ -974,8 +976,6 @@ bool fat16_change_directory(const char *path) {
         current_path[255] = '\0';
     } else {
         // Relative path
-        // This is a simplified approach - in a real implementation,
-        // you'd need to handle "." and ".." properly
         char temp_path[256];
         if (str_cmp(current_path, "/") == true) {
             // Create string like "/path"
@@ -1029,7 +1029,7 @@ bool fat16_delete_directory(const char *dir_name) {
                   ((dir_cluster - 2) * fat16_info.boot_record.sectors_per_cluster);
     
     // Read the directory's first sector
-    if (!ata_read_sectors(sector, 1, buffer)) {
+    if (ata_read_sectors(sector, 1, buffer) < 0) {
         return false;
     }
     
@@ -1056,7 +1056,7 @@ bool fat16_delete_directory(const char *dir_name) {
         u32_t ent_offset = fat_offset % SECTOR_SIZE;
         
         // Read the FAT sector
-        if (!ata_read_sectors(fat_sector, 1, buffer)) {
+        if (ata_read_sectors(fat_sector, 1, buffer) < 0) {
             return false;
         }
         
@@ -1074,7 +1074,7 @@ bool fat16_delete_directory(const char *dir_name) {
                 ((next_cluster - 2) * fat16_info.boot_record.sectors_per_cluster);
         
         // Read the next sector
-        if (!ata_read_sectors(sector, 1, buffer)) {
+        if (ata_read_sectors(sector, 1, buffer) < 0) {
             return false;
         }
         
@@ -1101,7 +1101,7 @@ bool fat16_delete_directory(const char *dir_name) {
         u32_t ent_offset = fat_offset % SECTOR_SIZE;
         
         // Read the FAT sector
-        if (!ata_read_sectors(fat_sector, 1, buffer)) {
+        if (ata_read_sectors(fat_sector, 1, buffer) < 0) {
             return false;
         }
         
@@ -1112,12 +1112,12 @@ bool fat16_delete_directory(const char *dir_name) {
         *(u16_t*)&buffer[ent_offset] = 0x0000;
         
         // Write the updated FAT sector back
-        if (!ata_write_sectors(fat_sector, 1, buffer)) {
+        if (ata_write_sectors(fat_sector, 1, buffer) < 0) {
             return false;
         }
         
         // If this was the last cluster, we're done
-        if (fat_entry >= 0xFFF8) {
+        if (fat_entry >= 0xfff8) {
             break;
         }
         
@@ -1428,7 +1428,7 @@ static bool _find_dir_entry(u16_t dir_cluster, const char *name, dir_entry_t *en
     dir_entry_t *dir_entry;
     
     while (sector < max_sectors) {
-        if (!ata_read_sectors(sector, 1, buffer)) {
+        if (ata_read_sectors(sector, 1, buffer) < 0) {
             return false;
         }
         

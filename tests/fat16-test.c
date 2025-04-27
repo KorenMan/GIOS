@@ -204,6 +204,224 @@ bool test_large_file() {
     return read_matches;
 }
 
+// Test directory creation
+bool test_create_directory() {
+    const char *dir_name = "TESTDIR";
+    
+    // Create directory
+    bool create_result = fat16_create_directory(dir_name);
+    if (!create_result) {
+        return false;
+    }
+    
+    // Try to change to the directory to verify it exists
+    bool change_result = fat16_change_directory(dir_name);
+    if (!change_result) {
+        return false;
+    }
+    
+    // Return to root directory
+    bool return_to_root = fat16_change_directory("..");
+    return return_to_root;
+}
+
+// Test directory navigation and path retrieval
+bool test_directory_navigation() {
+    const char *dir1 = "DIR1";
+    const char *dir2 = "DIR2";
+    const char *subdir = "SUBDIR";
+    
+    // Create test directory structure
+    bool create_dir1 = fat16_create_directory(dir1);
+    if (!create_dir1) {
+        return false;
+    }
+    
+    // Change to dir1
+    if (!fat16_change_directory(dir1)) {
+        return false;
+    }
+    
+    // Check path
+    const char *path = fat16_get_path();
+    if (path == NULL || !str_cmp(path, "/DIR1")) {
+        return false;
+    }
+    
+    // Create subdirectory within dir1
+    if (!fat16_create_directory(subdir)) {
+        return false;
+    }
+    
+    // Enter subdirectory
+    if (!fat16_change_directory(subdir)) {
+        return false;
+    }
+    
+    // Check path again
+    path = fat16_get_path();
+    if (path == NULL || !str_cmp(path, "/DIR1/SUBDIR")) {
+        return false;
+    }
+    
+    // Go back to root and create another directory
+    if (!fat16_change_directory("..") || !fat16_change_directory("..")) {
+        return false;
+    }
+    
+    // Check that we're back at the root
+    path = fat16_get_path();
+    if (path == NULL || !str_cmp(path, "/")) {
+        return false;
+    }
+    
+    // Create second directory at root
+    if (!fat16_create_directory(dir2)) {
+        return false;
+    }
+    
+    return true;
+}
+
+// Test file operations within directories
+bool test_files_in_directories() {
+    const char *dir_name = "FILEDIR";
+    const char *file_name = "TEST.TXT";
+    const char *test_content = "This is a test file in a directory.";
+    char buffer[TEST_BUFFER_SIZE];
+    
+    // Create directory and change to it
+    if (!fat16_create_directory(dir_name) || !fat16_change_directory(dir_name)) {
+        return false;
+    }
+    
+    // Create a file in the directory
+    file_t file = fat16_create(file_name);
+    if (!file.is_open) {
+        return false;
+    }
+    
+    // Write to the file
+    u32_t bytes_written = fat16_write(&file, test_content, str_len(test_content), 0);
+    fat16_close(&file);
+    
+    if (bytes_written != str_len(test_content)) {
+        return false;
+    }
+    
+    // Return to root directory
+    if (!fat16_change_directory("..")) {
+        return false;
+    }
+    
+    // Try to open the file from root - should fail
+    file_t root_file = fat16_open(file_name);
+    if (root_file.is_open) {
+        fat16_close(&root_file);
+        return false;
+    }
+    
+    // Change back to directory and open the file
+    if (!fat16_change_directory(dir_name)) {
+        return false;
+    }
+    
+    file_t dir_file = fat16_open(file_name);
+    if (!dir_file.is_open) {
+        return false;
+    }
+    
+    // Read and verify content
+    mem_set(buffer, 0, TEST_BUFFER_SIZE);
+    u32_t bytes_read = fat16_read(&dir_file, buffer, TEST_BUFFER_SIZE, 0);
+    fat16_close(&dir_file);
+    
+    if (bytes_read != str_len(test_content) || !str_cmp(buffer, test_content)) {
+        return false;
+    }
+    
+    // Return to root
+    return fat16_change_directory("..");
+}
+
+// Test directory deletion
+bool test_delete_directory() {
+    const char *dir_name = "DELDIR";
+    const char *file_name = "FILE.TXT";
+    const char *test_content = "This file will be deleted with directory.";
+    
+    // Create directory
+    if (!fat16_create_directory(dir_name)) {
+        return false;
+    }
+    
+    // Enter directory and create a file
+    if (!fat16_change_directory(dir_name)) {
+        return false;
+    }
+    
+    file_t file = fat16_create(file_name);
+    if (!file.is_open) {
+        return false;
+    }
+    
+    fat16_write(&file, test_content, str_len(test_content), 0);
+    fat16_close(&file);
+    
+    // Return to root
+    if (!fat16_change_directory("..")) {
+        return false;
+    }
+    
+    // Delete the directory (should delete the file too)
+    if (!fat16_delete_directory(dir_name)) {
+        return false;
+    }
+    
+    // Try to change to the deleted directory - should fail
+    if (fat16_change_directory(dir_name)) {
+        return false;
+    }
+    
+    return true;
+}
+
+// Test nested directory deletion
+bool test_nested_directory_deletion() {
+    const char *parent_dir = "PARENT";
+    const char *child_dir = "CHILD";
+    
+    // Create nested directory structure
+    if (!fat16_create_directory(parent_dir)) {
+        return false;
+    }
+    
+    if (!fat16_change_directory(parent_dir)) {
+        return false;
+    }
+    
+    if (!fat16_create_directory(child_dir)) {
+        return false;
+    }
+    
+    // Return to root
+    if (!fat16_change_directory("..")) {
+        return false;
+    }
+    
+    // Delete parent directory (should delete child too)
+    if (!fat16_delete_directory(parent_dir)) {
+        return false;
+    }
+    
+    // Verify parent directory is gone
+    if (fat16_change_directory(parent_dir)) {
+        return false;
+    }
+    
+    return true;
+}
+
 // Test file renaming
 bool test_file_rename() {
     const char *old_name = "OLD.TXT";
@@ -358,7 +576,6 @@ void run_all_tests() {
     }
     
     print_test_result("File Create and Close", test_file_create_close());
-    
     print_test_result("File Open", test_file_open());
     print_test_result("File Write", test_file_write());
     print_test_result("File Read", test_file_read());
@@ -366,6 +583,14 @@ void run_all_tests() {
     print_test_result("File Delete", test_file_delete());
     print_test_result("Large File", test_large_file());
     print_test_result("Multiple Files", test_multiple_files());
+    
+    // Directory tests
+    vga_print("\nDirectory Tests:\n");
+    print_test_result("Create Directory", test_create_directory());
+    print_test_result("Directory Navigation", test_directory_navigation());
+    print_test_result("Files in Directories", test_files_in_directories());
+    print_test_result("Delete Directory", test_delete_directory());
+    print_test_result("Nested Directory Deletion", test_nested_directory_deletion());
 }
 
 void test_fat16() {
