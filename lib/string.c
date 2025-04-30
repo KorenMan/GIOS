@@ -71,6 +71,9 @@ u32_t str_len(const char *str) {
 }
 
 bool str_cmp(const char *str1, const char *str2) {
+    if (str_len(str1) != str_len(str2)) {
+        return false;
+    }
     for (int i = 0; str1[i] != '\0'; i++) {
         if (str1[i] != str2[i]) {
             return false;
@@ -122,4 +125,22 @@ char *str_tok(char *str, const char *delim) {
     }
 
     return token;
+}
+
+char *str_cat(char *dest, const char *src) {
+    char *ptr = dest;
+
+    while (*ptr) {
+        ptr++;
+    }
+
+    while (*src) {
+        *ptr = *src;
+        ptr++;
+        src++;
+    }
+
+    *ptr = '\0';
+
+    return dest;
 }

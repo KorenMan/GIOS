@@ -9,4 +9,5 @@ u32_t str_len(const char *str);
 bool str_cmp(const char *str1, const char *str2);
 char str_to_upper(char chr);
 char *str_tok(char *str, const char *delim);
+char *str_cat(char *dest, const char *src);
 
