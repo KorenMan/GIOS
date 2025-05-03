@@ -56,7 +56,7 @@ bool fat16_format() {
     fat16_info.boot_record.jump_code[1] = 0x3c;
     fat16_info.boot_record.jump_code[2] = 0x90;
     
-    mem_cpy(fat16_info.boot_record.oem_name, "FATOS ", 8);
+    mem_cpy(fat16_info.boot_record.oem_name, "FAT16 ", 8);
     
     fat16_info.boot_record.bytes_per_sector = SECTOR_SIZE;
     fat16_info.boot_record.sectors_per_cluster = 1;     // Default cluster size
@@ -93,7 +93,7 @@ bool fat16_format() {
     fat16_info.boot_record.volume_id = 0x12345678;      // Volume ID
     
     mem_cpy(fat16_info.boot_record.volume_label, "VOLUME   ", 11);
-    mem_cpy(fat16_info.boot_record.fat16_type, "FAT16   ", 8);
+    mem_cpy(fat16_info.boot_record.fat16_type, "FAT16 ", 8);
     
     // Calculate important sector positions
     fat16_info.fat_start_sector = fat16_info.boot_record.reserved_sectors;
@@ -474,9 +474,7 @@ u32_t fat16_write(file_t *file, const void *buffer, u32_t size, int position) {
     
     // Update the file's metadata
     file->position += bytes_written;
-    if (file->position > file->entry.file_size) {
-        file->entry.file_size = file->position;
-    }
+    file->entry.file_size = file->position;
     
     file->current_cluster = cluster;
     

@@ -49,14 +49,14 @@ void str_int_to_dec(int num, char *str, int size) {
     }
 }
 
-char *str_chr(const char *str, int ch) {
+char *str_chr(const char *str, char ch) {
     while (*str) {
-        if (*str == (char)ch) {
+        if (*str == ch) {
             return (char *)str;
         }
         str++;
     }
-    if ((char)ch == '\0') {
+    if (ch == '\0') {
         return (char *)str;
     }
     return 0;
@@ -71,6 +71,9 @@ u32_t str_len(const char *str) {
 }
 
 bool str_cmp(const char *str1, const char *str2) {
+    if (str_len(str1) != str_len(str2)) {
+        return false;
+    }
     for (int i = 0; str1[i] != '\0'; i++) {
         if (str1[i] != str2[i]) {
             return false;
@@ -84,4 +87,72 @@ char str_to_upper(char chr) {
         return chr - 'a' + 'A';
     }
     return chr;
+}
+
+char *str_cat(char *dest, const char *src) {
+    char *ptr = dest;
+
+    while (*ptr) {
+        ptr++;
+    }
+
+    while (*src) {
+        *ptr = *src;
+        ptr++;
+        src++;
+    }
+
+    *ptr = '\0';
+
+    return dest;
+}
+
+bool str_split(const char *str, char ch, char *part1, char *part2, char *part3) {    
+    const char *pos1 = str_chr(str, ch);
+    if (!pos1) {
+        while (*str) {
+            *part1++ = *str++;
+        }
+        *part1 = '\0';
+        part2[0] = '\0';
+        part3[0] = '\0';
+        return false;
+    }
+    
+    while (str < pos1) {
+        *part1++ = *str++;
+    }
+    *part1 = '\0';
+    
+    // Skip the first delimiter.
+    str++;
+    
+    // Find the second occurrence of the delimiter.
+    const char *pos2 = str_chr(str, ch);
+    if (!pos2) {
+        // Only one delimiter found: copy remainder of str into part2.
+        while (*str) {
+            *part2++ = *str++;
+        }
+        *part2 = '\0';
+        part3[0] = '\0';
+        return false;
+    }
+    
+    // Copy from the current position until the second delimiter into part2.
+    while (str < pos2) {
+        *part2++ = *str++;
+    }
+    *part2 = '\0';
+    
+    // Skip the second delimiter.
+    str++;
+    
+    // Copy the rest of the string into part3.
+    while (*str) {
+        *part3++ = *str++;
+    }
+    *part3 = '\0';
+    
+    return true;
 }
