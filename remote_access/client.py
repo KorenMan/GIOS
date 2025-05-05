@@ -6,6 +6,7 @@ import os
 import time
 import sys
 import io
+import queue
 from pynput import keyboard
 from PIL import Image, ImageTk
 from Crypto.PublicKey import RSA
@@ -14,6 +15,18 @@ from Crypto.Random import get_random_bytes
 from Crypto.Util.Padding import pad, unpad
 import tkinter as tk
 from tkinter import ttk
+
+# --- Protocol Constants ---
+MSG_KEY = "KEY "
+MSG_SCREEN = "SCRN"
+MSG_CONTROL = "CTRL"
+MSG_MSG = "MESG"
+MSG_ERR = "ERR "
+MSG_DISCONNECT = "BYE "
+# Ensure codes are 4 bytes
+HEADER_TYPE_LEN = 4
+HEADER_SIZE_LEN = 8
+# --- End Protocol Constants ---
 
 class Client:
     def __init__(self, server_host='127.0.0.1', server_port=5555):
@@ -25,11 +38,14 @@ class Client:
         self.connected = False
         self.keyboard_listener = None
         self.pressed_keys = set() # Keep track of pressed keys
+        self.running = True # Flag to control threads
 
         # Screen sharing
-        self.receiving_screenshot = False
-        self.screenshot_chunks = []
-        self.expected_chunks = 0
+        self.screen_sharing_active = False  # Track screen sharing state
+
+        # Key event queue and processing thread
+        self.key_event_queue = queue.Queue()
+        self.key_processor_thread = None
 
         # GUI elements
         self.root = None
@@ -38,6 +54,17 @@ class Client:
         self.current_screenshot = None
         self.screenshot_canvas = None
         self.screenshot_inner_frame = None
+        self.status_var = None
+        self.connect_button = None
+        self.screen_button = None
+        self.keyboard_status_var = None
+        self.fps_var = None
+        self.console_text = None
+
+        # FPS calculation
+        self.frames_received = 0
+        self.last_fps_update = time.time()
+
 
     def start_gui(self):
         """Initialize the GUI"""
@@ -81,6 +108,16 @@ class Client:
         self.screen_button = ttk.Button(control_frame, text="Start", command=self.toggle_screen_sharing)
         self.screen_button.pack(side=tk.LEFT, padx=5)
         self.screen_button.config(state=tk.DISABLED)
+
+        # Keyboard status indicator
+        ttk.Separator(control_frame, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=10)
+
+        keyboard_label = ttk.Label(control_frame, text="Keyboard:")
+        keyboard_label.pack(side=tk.LEFT, padx=5)
+
+        self.keyboard_status_var = tk.StringVar(value="Disabled")
+        self.keyboard_status = ttk.Label(control_frame, textvariable=self.keyboard_status_var)
+        self.keyboard_status.pack(side=tk.LEFT, padx=5)
 
         # FPS display
         self.fps_var = tk.StringVar(value="0 FPS")
@@ -134,11 +171,6 @@ class Client:
             )
         )
 
-        # Set up screen sharing variables
-        self.screen_sharing_active = False
-        self.frames_received = 0
-        self.last_fps_update = time.time()
-
         # Start the GUI main loop
         self.root.mainloop()
 
@@ -153,46 +185,43 @@ class Client:
                 self.buffer += string
                 if '\n' in self.buffer:
                     lines = self.buffer.split('\n')
-                    # Add all complete lines
                     for line in lines[:-1]:
-                        self.text_widget.after(0, self._add_line, line + '\n')
-                    # Keep the last incomplete line in the buffer
+                        if self.text_widget.winfo_exists(): # Check if widget still exists
+                            self.text_widget.after(0, self._add_line, line + '\n')
                     self.buffer = lines[-1]
 
             def _add_line(self, line):
                 try:
-                    self.text_widget.insert(tk.END, line)
-                    self.text_widget.see(tk.END)
-                except tk.TclError: # Handle cases where widget might be destroyed
-                    pass
+                    if self.text_widget.winfo_exists():
+                        self.text_widget.insert(tk.END, line)
+                        self.text_widget.see(tk.END)
+                except tk.TclError:
+                    pass # Widget might be destroyed between check and insert
 
             def flush(self):
-                if self.buffer:
+                if self.buffer and self.text_widget.winfo_exists():
                     self.text_widget.after(0, self._add_line, self.buffer)
                     self.buffer = ""
 
-        # Redirect stdout to our custom handler
         sys.stdout = StdoutRedirector(self.console_text)
-        sys.stderr = StdoutRedirector(self.console_text) # Also redirect stderr
+        sys.stderr = StdoutRedirector(self.console_text)
 
     def on_closing(self):
         """Handle window closing"""
         print("[*] Closing application...")
+        self.running = False # Signal threads to stop
         self.disconnect()
         if self.root:
             self.root.destroy()
-        self.running = False # Ensure loops stop
+
 
     def toggle_connection(self):
         """Toggle connection to server"""
         if self.connected:
             self.disconnect()
         else:
-            # Start the client connection in a separate thread
+            self.connect()
             self.running = True
-            connection_thread = threading.Thread(target=self.connect)
-            connection_thread.daemon = True
-            connection_thread.start()
 
     def toggle_screen_sharing(self):
         """Toggle screen sharing"""
@@ -201,112 +230,188 @@ class Client:
             return
 
         if self.screen_sharing_active:
-            self.screen_sharing_active = False
-            self.send_message('screen_control', {'action': 'stop'})
+            self._clear_keyboard_state() # Release keys on server
+            self.send_message(MSG_CONTROL, {'action': 'stop'})
             self.screen_button.config(text="Start")
-            print("[*] Screen sharing stopped.")
+            self.keyboard_status_var.set("Disabled")
+            print("[*] Screen sharing stopped. Keyboard control disabled.")
+            self.screen_sharing_active = False
         else:
             self.screen_sharing_active = True
-            # Set default quality and scale (optional, can be adjusted)
-            self.send_message('screen_control', {'action': 'quality', 'value': 70})
-            self.send_message('screen_control', {'action': 'scale', 'value': 0.75})
-            self.send_message('screen_control', {'action': 'start'})
+            self.send_message(MSG_CONTROL, {'action': 'quality', 'value': 70})
+            self.send_message(MSG_CONTROL, {'action': 'scale', 'value': 0.75})
+            self.send_message(MSG_CONTROL, {'action': 'start'})
             self.screen_button.config(text="Stop")
-            print("[*] Screen sharing started.")
-            # Reset FPS counter
+            self.keyboard_status_var.set("Enabled")
+            print("[*] Screen sharing started. Keyboard control enabled.")
             self.frames_received = 0
             self.last_fps_update = time.time()
+            self._clear_keyboard_state() # Ensure clean state locally
+
+    def _clear_keyboard_state(self):
+        """Reset keyboard state - release all pressed keys"""
+        # Send key_up events for any keys still registered as pressed locally
+        if self.connected and self.screen_sharing_active: # Only send if active
+            for key_data in self.pressed_keys:
+                try:
+                    key_type, key_id = key_data.split(':', 1)
+                    # Instead of direct network I/O, add to queue
+                    self.key_event_queue.put(('up', key_id, key_type))
+                except Exception as e:
+                    print(f"[!] Error preparing key release {key_data}: {e}")
+
+        # Clear the local set of pressed keys regardless of connection status
+        self.pressed_keys.clear()
+        print("[*] Local keyboard state cleared")
+
+    def _process_key_events(self):
+        """Thread function to process key events from the queue"""
+        while self.running:
+            try:
+                # Get next event with timeout to allow checking running flag
+                try:
+                    event = self.key_event_queue.get(timeout=0.1)
+                except queue.Empty:
+                    continue
+
+                # Extract event data
+                state, key_id, key_type = event
+
+                # Process the event
+                if self.connected and self.screen_sharing_active:
+                    self.send_message(MSG_KEY, {
+                        'key': key_id,
+                        'key_kind': key_type,
+                        'state': state
+                    })
+                    # Small delay to prevent flooding the server
+                    time.sleep(0.001)
+                
+                # Mark as done
+                self.key_event_queue.task_done()
+            
+            except Exception as e:
+                print(f"[!] Error processing key event: {e}")
+                # Continue processing next event
+
+        print("[*] Key processor thread terminated")
 
     def connect(self):
         """Connect to the server and establish encrypted communication"""
         try:
-            # Create socket and connect
             self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.client_socket.settimeout(10) # Add timeout for connection
+            self.client_socket.settimeout(10)
             print(f"[*] Connecting to {self.server_host}:{self.server_port}...")
             self.client_socket.connect((self.server_host, self.server_port))
-            self.client_socket.settimeout(None) # Remove timeout after connection
+            self.client_socket.settimeout(None)
             print(f"[*] Connected to server at {self.server_host}:{self.server_port}")
+
+            self._key_exchange() # Perform key exchange immediately after connect
+
+            self.connected = True # Set connected only after successful key exchange
+
+            # Start the key processor thread first
+            self.key_processor_thread = threading.Thread(target=self._process_key_events, daemon=True)
+            self.key_processor_thread.start()
+            print("[*] Key event processor thread started")
+
+            # Update GUI in main thread
             if self.root:
-                self.status_var.set(f"Connected to {self.server_host}:{self.server_port}")
-                self.connect_button.config(text="Disconnect")
-                self.screen_button.config(state=tk.NORMAL)
+                self.root.after(0, self._update_gui_connected)
 
-            # Perform key exchange
-            self._key_exchange()
+            self._start_keyboard_listener() # Start listener after connection
 
-            self.connected = True
-
-            # Start listening for keyboard events (moved after connection and key exchange)
-            self._start_keyboard_listener()
-
-            # Start a thread to receive messages
             receiver_thread = threading.Thread(target=self._receive_messages)
-            receiver_thread.daemon = True
             receiver_thread.start()
-
-            # Keep the connection active check (optional, can be removed if receive handles disconnects)
-            # while self.connected and self.running:
-            #     time.sleep(0.5)
 
         except socket.timeout:
             print(f"[!] Connection timed out to {self.server_host}:{self.server_port}")
-            if self.root: self.status_var.set("Connection timeout")
-            self.disconnect() # Ensure cleanup
+            if self.root: self.root.after(0, self._update_gui_disconnected, "Connection timeout")
+            self.disconnect()
         except ConnectionRefusedError:
             print(f"[!] Connection refused by {self.server_host}:{self.server_port}")
-            if self.root: self.status_var.set("Connection refused")
-            self.disconnect() # Ensure cleanup
+            if self.root: self.root.after(0, self._update_gui_disconnected, "Connection refused")
+            self.disconnect()
         except Exception as e:
             print(f"[!] Connection error: {e}")
-            if self.root: self.status_var.set(f"Error: {str(e)[:50]}")
-            self.disconnect() # Ensure cleanup
+            if self.root: self.root.after(0, self._update_gui_disconnected, f"Error: {str(e)[:50]}")
+            self.disconnect()
+
+    def _update_gui_connected(self):
+        """Update GUI elements for connected state (run in main thread)"""
+        if not self.root or not self.status_var: return
+        self.status_var.set(f"Connected to {self.server_host}:{self.server_port}")
+        self.connect_button.config(text="Disconnect")
+        self.screen_button.config(state=tk.NORMAL)
+
+    def _update_gui_disconnected(self, reason="Disconnected"):
+        """Update GUI elements for disconnected state (run in main thread)"""
+        if not self.root or not self.status_var: return
+        self.status_var.set(reason)
+        self.connect_button.config(text="Connect")
+        self.screen_button.config(state=tk.DISABLED)
+        self.screen_button.config(text="Start")
+        self.keyboard_status_var.set("Disabled")
+        self.fps_var.set("0 FPS")
+        # Clear screenshot display
+        self.screenshot_label.config(image=None)
+        self.current_screenshot = None # Clear reference
+
 
     def disconnect(self):
         """Disconnect from the server"""
+        if not self.connected: # Prevent multiple disconnect calls
+            return
+
         was_connected = self.connected
         self.connected = False
         self.screen_sharing_active = False
 
+        # Send disconnect message if socket still exists
+        if self.client_socket:
+             try:
+                 # Use the new send_message format (if key exists)
+                 if self.aes_key:
+                     self.send_message(MSG_DISCONNECT, {})
+                 # Even if send fails, proceed with closing
+             except Exception as e:
+                 print(f"[!] Error sending disconnect message: {e}")
+
+        # Stop keyboard listener first
         if self.keyboard_listener:
             print("[*] Stopping keyboard listener...")
             self.keyboard_listener.stop()
-            # Ensure the listener thread has joined
-            # self.keyboard_listener.join() # Blocking, consider if needed
             self.keyboard_listener = None
-            self.pressed_keys.clear() # Clear pressed keys on disconnect
 
+        # Then clear local keyboard state (server state cleared by server on disconnect)
+        self._clear_keyboard_state()
+
+        # Close socket
         if self.client_socket:
             print("[*] Closing socket...")
             try:
-                # Optionally send a disconnect message
-                # self.send_message('disconnect', {})
-                self.client_socket.shutdown(socket.SHUT_RDWR) # Graceful shutdown
+                self.client_socket.shutdown(socket.SHUT_RDWR)
                 self.client_socket.close()
             except Exception as e:
                 print(f"[!] Error closing socket: {e}")
             self.client_socket = None
 
+        self.aes_key = None # Clear AES key
+        self.server_public_key = None
+
         if was_connected: print("[*] Disconnected from server")
 
+        # Update GUI in main thread
         if self.root:
-            try:
-                self.status_var.set("Disconnected")
-                self.connect_button.config(text="Connect")
-                self.screen_button.config(state=tk.DISABLED)
-                self.screen_button.config(text="Start")
-                # Clear the screenshot display
-                self.screenshot_label.config(image=None)
-                self.screenshot_label.image = None
-                self.fps_var.set("0 FPS")
-            except tk.TclError: # Handle cases where GUI might be closing
-                 pass
+            self.root.after(0, self._update_gui_disconnected)
+
 
     def _key_exchange(self):
         """Perform RSA key exchange and establish AES key"""
         try:
             # Receive server's public key
             print("[*] Receiving server public key...")
+            # Assume key is sent raw, adjust size if needed
             server_public_key_bytes = self.client_socket.recv(4096)
             if not server_public_key_bytes:
                 raise ConnectionError("Server disconnected during key exchange (public key)")
@@ -327,193 +432,220 @@ class Client:
             print("[*] Secure connection established.")
         except Exception as e:
             print(f"[!] Key exchange failed: {e}")
+            self.aes_key = None # Ensure key is None on failure
             raise # Re-raise the exception to be caught by connect()
 
     def _encrypt_aes(self, message_data):
-        """Encrypt data using AES and prepare JSON package"""
+        """Encrypts the payload dictionary using AES. Returns bytes."""
+        if not self.aes_key:
+            print("[!] AES key not available for encryption.")
+            return None
         try:
+            # The payload (message_data) should be a dictionary
             message_json = json.dumps(message_data)
             message_bytes = message_json.encode('utf-8')
 
-            # Generate a random IV
             iv = get_random_bytes(16)
-
-            # Create cipher and encrypt
             cipher = AES.new(self.aes_key, AES.MODE_CBC, iv)
             ct_bytes = cipher.encrypt(pad(message_bytes, AES.block_size))
 
-            # Prepare the message package
-            encrypted_package = {
-                'iv': base64.b64encode(iv).decode('utf-8'),
-                'ciphertext': base64.b64encode(ct_bytes).decode('utf-8')
-            }
-            # Convert to JSON string and encode
-            return json.dumps(encrypted_package).encode('utf-8')
+            # Combine IV and ciphertext (e.g., IV first)
+            return iv + ct_bytes
         except Exception as e:
             print(f"[!] AES encryption error: {e}")
             return None
 
-    def _decrypt_aes(self, encrypted_data):
-        """Decrypt AES encrypted JSON package"""
+    def _decrypt_aes(self, encrypted_payload_bytes):
+        """Decrypts the raw AES payload bytes (IV + ciphertext). Returns dictionary."""
+        if not self.aes_key:
+            print("[!] AES key not available for decryption.")
+            return None
         try:
-            # Parse the encrypted message
-            package_str = encrypted_data.decode('utf-8')
-            data_dict = json.loads(package_str)
+            if len(encrypted_payload_bytes) < 16: # Basic check for IV
+                 print("[!] Decryption error: Payload too short.")
+                 return None
 
-            iv = base64.b64decode(data_dict['iv'])
-            ciphertext = base64.b64decode(data_dict['ciphertext'])
+            iv = encrypted_payload_bytes[:16]
+            ciphertext = encrypted_payload_bytes[16:]
 
-            # Create cipher and decrypt
             cipher = AES.new(self.aes_key, AES.MODE_CBC, iv)
             decrypted_padded = cipher.decrypt(ciphertext)
 
-            # Unpad and decode
             decrypted = unpad(decrypted_padded, AES.block_size)
             message_json = decrypted.decode('utf-8')
-            return json.loads(message_json) # Return the original dict/list
-        except (json.JSONDecodeError, KeyError, ValueError, TypeError) as e:
-            print(f"[!] AES decryption/parsing error: {e}")
-            print(f"Received raw data snippet: {encrypted_data[:100]}...")
+            return json.loads(message_json) # Return the original dict
+        except (ValueError, KeyError) as e:
+            print(f"[!] AES decryption/unpadding error: {e}")
             return None # Indicate failure
+        except json.JSONDecodeError as e:
+            print(f"[!] JSON decoding error after decryption: {e}")
+            return None
         except Exception as e:
             print(f"[!] Unexpected AES decryption error: {e}")
             return None
 
-    def send_message(self, msg_type, payload):
-        """Encrypt and send a message to the server"""
-        if not self.connected or not self.client_socket:
-            print("[!] Cannot send message: Not connected.")
+
+    def send_message(self, msg_type_code, payload_dict):
+        """Encrypt payload and send message with custom header"""
+        if not self.connected or not self.client_socket or not self.aes_key:
+            # Don't print error here for disconnect message itself
+            if msg_type_code != MSG_DISCONNECT:
+                 print(f"[!] Cannot send '{msg_type_code.strip()}': Not connected or no key.")
             return False
         try:
-            message_data = {'type': msg_type, **payload} # Combine type and payload
-            encrypted_message = self._encrypt_aes(message_data)
-            if encrypted_message:
-                # Add length prefix (4 bytes, big-endian)
-                msg_len = len(encrypted_message)
-                len_prefix = msg_len.to_bytes(4, byteorder='big')
-                self.client_socket.sendall(len_prefix + encrypted_message)
-                # print(f"[*] Sent: {msg_type}, len={msg_len}") # Debug
-                return True
-            else:
-                print(f"[!] Failed to encrypt message of type {msg_type}")
+            # Encrypt the payload dictionary
+            encrypted_payload = self._encrypt_aes(payload_dict)
+            if not encrypted_payload:
+                print(f"[!] Failed to encrypt payload for '{msg_type_code.strip()}'")
                 return False
+
+            # Prepare headers
+            type_header = msg_type_code.ljust(HEADER_TYPE_LEN).encode('utf-8')
+            size_header = str(len(encrypted_payload)).ljust(HEADER_SIZE_LEN).encode('utf-8')
+
+            # Send headers + encrypted payload
+            self.client_socket.sendall(type_header + size_header + encrypted_payload)
+            # print(f"[*] Sent: {msg_type_code.strip()}, Size={len(encrypted_payload)}") # Debug
+            return True
+
         except socket.error as e:
-            print(f"[!] Socket error sending message: {e}")
-            self.disconnect()
+            print(f"[!] Socket error sending '{msg_type_code.strip()}': {e}")
+            self.disconnect() # Disconnect on socket error
             return False
         except Exception as e:
-            print(f"[!] Error sending message: {e}")
+            print(f"[!] Error sending message '{msg_type_code.strip()}': {e}")
             return False
 
     def _receive_messages(self):
-        """Receive and process messages from the server"""
+        """Receive and process messages from the server using custom protocol"""
         buffer = b""
-        payload_len = -1
+        expected_len = -1
+        msg_type = None
+
+        header_len = HEADER_TYPE_LEN + HEADER_SIZE_LEN
 
         while self.connected and self.client_socket and self.running:
             try:
-                # Receive data from the socket
-                data = self.client_socket.recv(4096) # Read up to 4KB
+                data = self.client_socket.recv(4096)
                 if not data:
                     print("[!] Connection closed by server (received empty data).")
                     self.disconnect()
                     break
                 buffer += data
 
-                # Process buffer - loop to handle multiple messages in one recv
-                while True:
-                    if payload_len == -1: # Waiting for length prefix
-                        if len(buffer) >= 4:
-                            payload_len = int.from_bytes(buffer[:4], byteorder='big')
-                            buffer = buffer[4:]
-                            # print(f"[*] Expecting payload len: {payload_len}") # Debug
-                        else:
-                            break # Need more data for length
+                while True: # Process buffer for multiple messages
+                    if expected_len == -1: # Waiting for header
+                        if len(buffer) >= header_len:
+                            # Extract header
+                            type_header = buffer[:HEADER_TYPE_LEN].decode('utf-8').strip()
+                            size_header = buffer[HEADER_TYPE_LEN:header_len].decode('utf-8').strip()
+                            buffer = buffer[header_len:]
 
-                    if payload_len != -1 and len(buffer) >= payload_len: # Have complete message
-                        # Extract message payload
-                        payload_data = buffer[:payload_len]
-                        buffer = buffer[payload_len:]
-                        payload_len = -1 # Reset for next message
+                            try:
+                                expected_len = int(size_header)
+                                msg_type = type_header
+                                # print(f"[*] Expecting Type: {msg_type}, Len: {expected_len}") # Debug
+                            except ValueError:
+                                print(f"[!] Invalid size header received: '{size_header}'")
+                                self.disconnect() # Protocol error, disconnect
+                                return # Exit thread
 
-                        # Decrypt and process the message
-                        message = self._decrypt_aes(payload_data)
-                        if message:
-                            self._handle_message(message)
                         else:
-                            print("[!] Failed to decrypt or parse message, skipping.")
+                            break # Need more data for header
+
+                    if expected_len != -1 and len(buffer) >= expected_len: # Have complete payload
+                        # Extract encrypted payload
+                        encrypted_payload = buffer[:expected_len]
+                        buffer = buffer[expected_len:]
+
+
+                        # Decrypt and process
+                        message_payload = self._decrypt_aes(encrypted_payload)
+                        if message_payload:
+                            # Pass the string type code and the decrypted payload dict
+                            self._handle_message(msg_type, message_payload)
+                        else:
+                            print(f"[!] Failed to decrypt/parse message of type '{msg_type}', skipping.")
+
+                        # Reset for next message
+                        expected_len = -1
+                        msg_type = None
                     else:
                         break # Need more data for payload
 
             except socket.timeout:
-                # This shouldn't happen if timeout is None, but handle defensively
-                print("[!] Socket timeout during receive (should not happen).")
+                # Should not happen with timeout=None, but handle defensively
+                print("[!] Socket timeout during receive.")
                 time.sleep(0.1)
                 continue
             except socket.error as e:
-                print(f"[!] Socket error receiving message: {e}")
+                if self.connected: # Avoid error message if disconnect was intended
+                    print(f"[!] Socket error receiving message: {e}")
                 self.disconnect()
-                break # Exit loop on socket error
+                break # Exit loop
             except Exception as e:
                 print(f"[!] Error receiving or processing message: {e}")
-                # Consider whether to disconnect or try to continue
-                # For now, let's disconnect on unknown errors
+                import traceback
+                traceback.print_exc() # Print detailed traceback for debugging
                 self.disconnect()
                 break # Exit loop
 
         print("[*] Receiver thread finished.")
 
 
-    def _handle_message(self, message):
+    def _handle_message(self, msg_type, payload):
         """Handle different types of messages received from the server"""
-        msg_type = message.get('type')
-        # print(f"[*] Received message type: {msg_type}") # Debug
+        # print(f"[*] Received Type: {msg_type}, Payload: {payload}") # Debug
 
-        if msg_type == 'screenshot':
-            img_data = message.get('data')
+        if msg_type == MSG_SCREEN: # Screenshot
+            img_data = payload.get('data')
             if img_data:
                 try:
                     img_bytes = base64.b64decode(img_data)
                     # Process in GUI thread
-                    self.root.after(0, self._display_screenshot, img_bytes)
+                    if self.root:
+                        self.root.after(0, self._display_screenshot, img_bytes)
+
                     # Calculate FPS
                     self.frames_received += 1
                     now = time.time()
                     elapsed = now - self.last_fps_update
                     if elapsed >= 1.0:
                         fps = self.frames_received / elapsed
-                        self.fps_var.set(f"{fps:.1f} FPS")
+                        if self.root and self.fps_var:
+                             self.root.after(0, self.fps_var.set, f"{fps:.1f} FPS")
                         self.last_fps_update = now
                         self.frames_received = 0
                 except (TypeError, ValueError, base64.binascii.Error) as e:
                     print(f"[!] Error decoding screenshot data: {e}")
                 except Exception as e:
-                     print(f"[!] Error displaying screenshot: {e}")
+                     print(f"[!] Error handling screenshot: {e}")
             else:
                 print("[!] Received screenshot message with no data.")
 
-        elif msg_type == 'server_message':
-            content = message.get('content', 'No content')
-            print(f"[Server]: {content}") # Print server messages to console
+        elif msg_type == MSG_MSG: # Server message
+            content = payload.get('content', 'No content')
+            print(f"[Server]: {content}")
 
-        elif msg_type == 'error':
-             error_msg = message.get('message', 'Unknown server error')
+        elif msg_type == MSG_ERR: # Server error
+             error_msg = payload.get('message', 'Unknown server error')
              print(f"[!] Server Error: {error_msg}")
 
         else:
-            print(f"[?] Received unknown message type: {msg_type}")
+            print(f"[?] Received unknown message type code: {msg_type}")
 
 
     def _display_screenshot(self, img_bytes):
-        """Update the screenshot label with the new image"""
-        if not self.root or not self.screenshot_label:
+        """Update the screenshot label with the new image (run in GUI thread)"""
+        if not self.root or not self.screenshot_label or not self.screenshot_label.winfo_exists():
              return # Exit if GUI elements are gone
 
         try:
             img = Image.open(io.BytesIO(img_bytes))
             # Keep a reference to avoid garbage collection!
-            self.current_screenshot = ImageTk.PhotoImage(img)
-            self.screenshot_label.config(image=self.current_screenshot)
+            photo_image = ImageTk.PhotoImage(img)
+            self.screenshot_label.config(image=photo_image)
+            self.screenshot_label.image = photo_image # Keep reference
 
             # Update scroll region after image is loaded
             self.screenshot_label.update_idletasks() # Ensure label size is updated
@@ -521,9 +653,14 @@ class Client:
 
         except Exception as e:
             print(f"[!] Error displaying screenshot in Tkinter: {e}")
-            # Optionally clear the image on error
-            # self.screenshot_label.config(image=None)
-            # self.current_screenshot = None
+
+    def _win32_event_filter(self, msg, data):
+        """Filter function for the Win32 keyboard hook to ignore injected events"""
+        # Skip injected events (bit 0x10 in flags)
+        if hasattr(data, 'flags') and data.flags & 0x10:
+            # print(f"[*] Filtered injected event: {msg}, {data}") # Debug
+            return False
+        return True
 
     def _start_keyboard_listener(self):
         """Start the pynput keyboard listener"""
@@ -531,77 +668,84 @@ class Client:
             print("[!] Keyboard listener already running.")
             return
 
-        # Define press and release handlers within the method scope
         def on_press(key):
-            if not self.connected: # Stop sending if disconnected
-                 return
+            # Fast return if not active (don't even queue the event)
+            if not self.connected or not self.screen_sharing_active:
+                return
+           
             try:
-                # Determine key identifier (char vs special)
                 if hasattr(key, 'char') and key.char:
                     key_id = key.char
                     key_type = 'char'
                 else:
-                    # Use key.name if available (newer pynput), fallback to str
                     key_name = getattr(key, 'name', str(key).replace('Key.', ''))
                     key_id = key_name
                     key_type = 'special'
 
-                # Send 'key_down' only if not already pressed
+                # Create unique key identifier
                 unique_key_repr = f"{key_type}:{key_id}"
+                
+                # Only queue if not already pressed
                 if unique_key_repr not in self.pressed_keys:
                     self.pressed_keys.add(unique_key_repr)
-                    # print(f"[*] Key pressed: {unique_key_repr}") # Debug
-                    self.send_message('key_event', {'key': key_id, 'key_kind': key_type, 'state': 'down'})
+                    # Add to queue instead of direct send
+                    self.key_event_queue.put(('down', key_id, key_type))
+                    # print(f"[*] Key press queued: {unique_key_repr}") # Debug
 
             except Exception as e:
                 print(f"[!] Error handling key press: {e}")
 
         def on_release(key):
-            if not self.connected: # Stop sending if disconnected
-                # Stop the listener if it's still running after disconnect
-                if self.keyboard_listener:
-                     return False # Returning False stops the listener
-                return
+                """Handle key release events"""
+                # Check connection status at the beginning of the handler
+                if not self.connected:
+                    # Listener might still be running briefly after disconnect initiated
+                    return False  # Stop listener if disconnected
+                    
+                # Only process release if screen sharing was active
+                if not self.screen_sharing_active:
+                    return
+                    
+                try:
+                    if hasattr(key, 'char') and key.char:
+                        key_id = key.char
+                        key_type = 'char'
+                    else:
+                        key_name = getattr(key, 'name', str(key).replace('Key.', ''))
+                        key_id = key_name
+                        key_type = 'special'
+                        
+                    unique_key_repr = f"{key_type}:{key_id}"
+                    
+                    # Remove from pressed set and queue release event
+                    if unique_key_repr in self.pressed_keys:
+                        self.pressed_keys.remove(unique_key_repr)
+                        # Queue event instead of direct send to avoid blocking
+                        self.key_event_queue.put(('up', key_id, key_type))
+                        # print(f"[*] Key released: {unique_key_repr}") # Debug
+                        
+                except Exception as e:
+                    print(f"[!] Error handling key release: {e}")
 
-            try:
-                # Determine key identifier
-                if hasattr(key, 'char') and key.char:
-                    key_id = key.char
-                    key_type = 'char'
-                else:
-                    key_name = getattr(key, 'name', str(key).replace('Key.', ''))
-                    key_id = key_name
-                    key_type = 'special'
-
-                unique_key_repr = f"{key_type}:{key_id}"
-                # Send 'key_up' and remove from pressed set
-                if unique_key_repr in self.pressed_keys:
-                    self.pressed_keys.remove(unique_key_repr)
-                    # print(f"[*] Key released: {unique_key_repr}") # Debug
-                    self.send_message('key_event', {'key': key_id, 'key_kind': key_type, 'state': 'up'})
-                # else:
-                    # Key released that wasn't tracked as pressed (can happen on startup/focus loss)
-                    # Optionally send 'up' anyway? Depends on desired behavior.
-                    # self.send_message('key_event', {'key': key_id, 'type': key_type, 'state': 'up'})
-
-            except Exception as e:
-                print(f"[!] Error handling key release: {e}")
-
-        # Start the keyboard listener in a separate thread
-        # Use suppress=False to allow key events to pass through to other apps
-        self.keyboard_listener = keyboard.Listener(on_press=on_press, on_release=on_release, suppress=False)
-        self.keyboard_listener.daemon = True # Ensure thread exits when main program exits
-        self.keyboard_listener.start()
-        print("[*] Keyboard listener started.")
-
-    # Removed send_text and send_key as direct methods, use send_message now
-
+        # Start listener in a separate thread
+        try:
+            # Create listener with win32 event filter to avoid injected events
+            self.keyboard_listener = keyboard.Listener(
+                on_press=on_press,
+                on_release=on_release,
+                win32_event_filter=self._win32_event_filter)
+            self.keyboard_listener.start()
+            print("[*] Keyboard listener started.")
+        except Exception as e:
+            print(f"[!] Failed to start keyboard listener: {e}")
+            # Optionally, disable keyboard control in GUI if listener fails
+            if self.keyboard_status_var:
+                self.keyboard_status_var.set("Listener Error")
 
 if __name__ == "__main__":
-    # Parse command line arguments
     server_host = '127.0.0.1'
     server_port = 5555
-
+    
     if len(sys.argv) > 1:
         server_host = sys.argv[1]
     if len(sys.argv) > 2:
@@ -609,7 +753,7 @@ if __name__ == "__main__":
             server_port = int(sys.argv[2])
         except ValueError:
             print(f"Invalid port number: {sys.argv[2]}. Using default {server_port}.")
-
+            
     print(f"Attempting to connect to {server_host}:{server_port}")
     client = Client(server_host=server_host, server_port=server_port)
-    client.start_gui() # Start the GUI, connection attempt happens via button/thread
+    client.start_gui()
