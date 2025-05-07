@@ -10,3 +10,4 @@ bool str_cmp(const char *str1, const char *str2);
 char str_to_upper(char chr);
 char *str_cat(char *dest, const char *src);
 bool str_split(const char *str, char ch, char *part1, char *part2, char *part3);
+int str_hex_to_num(const char *str);

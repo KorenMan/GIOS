@@ -4,9 +4,9 @@
 #include "../lib/string.h"
 
 void shell_cmd(char *input) {
-    char cmd[16];
-    char arg1[16];
-    char arg2[16];
+    char cmd[256];
+    char arg1[256];
+    char arg2[256];
     str_split(input, ' ', cmd, arg1, arg2);
 
     if (str_cmp(cmd, "help")) {
@@ -20,6 +20,7 @@ void shell_cmd(char *input) {
         vga_print("read      - Read content from a file\n");
         vga_print("delete    - Delete a file\n");
         vga_print("rename    - Rename a file\n");
+        vga_print("color     - Change the shell color\n");
     } else if (str_cmp(cmd, "clear")) {
         vga_clear_screen();
     } else if (str_cmp(cmd, "echo")) {
@@ -117,6 +118,21 @@ void shell_cmd(char *input) {
                 vga_print("File renamed successfully");
             } else {
                 vga_print("Problem renaming file");
+            }
+        }
+        vga_print("\n");
+    } else if (str_cmp(cmd, "color")) {
+        vga_print("\n");
+        if (str_len(arg1) > 2) {
+            vga_print("Usage: color <byte in hex>\n");
+        } else {
+            int num = str_hex_to_num(arg1);
+            if (arg1[0] == '\0') {
+                vga_color(0x0f);
+            } else if (num < 0) {
+                vga_print("Usage: color <byte in hex>\n");
+            } else {
+                vga_color(num); 
             }
         }
         vga_print("\n");

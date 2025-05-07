@@ -1,6 +1,8 @@
 #include "vga-driver.h"
 #include "../lib/ports.h"
 
+static u8_t color = WHITE_ON_BLACK;
+
 static inline u16_t _get_offset(u8_t row, u8_t column);
 static inline u8_t _get_row(u16_t offset);
 static u16_t _get_cursor_offset();
@@ -47,6 +49,17 @@ void vga_backspace() {
     _set_cursor_offset(offset);
 }
 
+void vga_color(u8_t new_color) {
+    color = new_color;
+    
+    volatile u8_t *attr = (u8_t *)(VIDEO_MEMORY + 1); 
+    
+    while ((void *)attr < (void *)(VIDEO_MEMORY + (SCREEN_WIDTH * SCREEN_HEIGHT * 2))) {
+        *attr = color;
+        attr += 2;
+    }
+}
+
 /* =============================== Private Functions =============================== */
 
 static inline u16_t _get_offset(u8_t row, u8_t column) {
@@ -69,13 +82,13 @@ static void _set_cursor_offset(u16_t offset) {
     port_byte_out(CONTROL_REGISTER, OFFSET_HIGH);
     port_byte_out(DATA_REGISTER, (u8_t)(offset >> 8));
     port_byte_out(CONTROL_REGISTER, OFFSET_LOW);
-    port_byte_out(DATA_REGISTER, (u8_t)(offset & 0xFF));
+    port_byte_out(DATA_REGISTER, (u8_t)(offset & 0xff));
 }
 
 static inline void _set_char_at(char character, u16_t offset) {
     volatile u8_t *video_memory = (u8_t *)VIDEO_MEMORY;
     video_memory[offset] = character;
-    video_memory[offset + 1] = WHITE_ON_BLACK;
+    video_memory[offset + 1] = color;
 }
 
 // copy every line on the video memory to the line above it and clear a new line

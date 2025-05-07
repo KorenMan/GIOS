@@ -54,7 +54,6 @@ void keyboard_callback(registers_t registers) {
         buffer[0] = '\0';
         return;
     }
-    
 
     str_cat(buffer, characters[scancode]);
     vga_print(characters[scancode]);

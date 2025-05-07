@@ -1,9 +1,9 @@
 #include "string.h"
 
 void str_int_to_hex(int num, char *str, int size) {
-    char hex_digits[] = "0123456789ABCDEF";
+    char hex_digits[] = "0123456789abcdef";
     int i = 0;
-    
+
     // Handle case where num is 0
     if (num == 0) {
         if (size > 1) {
@@ -155,4 +155,29 @@ bool str_split(const char *str, char ch, char *part1, char *part2, char *part3) 
     *part3 = '\0';
     
     return true;
+}
+
+int str_hex_to_num(const char *str) {
+    if (str[0] == '0' && (str[1] == 'x' || str[1] == 'X')) {
+        str += 2;
+    }
+    
+    int num = 0;
+    for (; *str; str++) {
+        char temp = *str;
+        int digit;
+        if (temp >= '0' && temp <= '9') {
+            digit = temp - '0';
+        } else if (temp >= 'a' && temp <= 'f') {
+            digit = temp - 'a' + 10;
+        } else if (temp >= 'A' && temp <= 'F') {
+            digit = temp - 'A' + 10;
+        } else {
+            return -1;
+        }
+    
+        num = (num << 4) | digit;
+    }
+
+    return num;
 }
