@@ -764,10 +764,9 @@ bool fat16_create_directory(const char *dir_name) {
     // Clear the entry first
     mem_set(dir_entry, 0, sizeof(dir_entry_t));
     
-    // Set filename
-    _filename_to_fat83(dir_name, dir_entry->filename, NULL);
-    
     // Set attributes and times
+    mem_cpy(dir_entry->filename, dir_name, str_len(dir_name) + 1);
+    dir_entry->extension[0] = '\0';
     dir_entry->attributes = ATTR_DIRECTORY;
     dir_entry->creation_time = _create_fat_time();
     dir_entry->creation_date = _create_fat_date();
@@ -804,10 +803,9 @@ bool fat16_create_directory(const char *dir_name) {
     // Clear the entry first
     mem_set(dir_entry, 0, sizeof(dir_entry_t));
     
-    // Set filename
-    _filename_to_fat83(dir_name, ".", NULL);
-    
     // Set attributes and times
+    mem_cpy(dir_entry->filename, ".", 2);
+    dir_entry->extension[0] = '\0';
     dir_entry->attributes = ATTR_DIRECTORY;
     dir_entry->creation_time = _create_fat_time();
     dir_entry->creation_date = _create_fat_date();
@@ -838,26 +836,23 @@ bool fat16_create_directory(const char *dir_name) {
     // Clear the entry first
     mem_set(dir_entry, 0, sizeof(dir_entry_t));
     
-    // Set filename
-    _filename_to_fat83(dir_name, "..", NULL);
-    
     // Set attributes and times
+    mem_cpy(dir_entry->filename, "..", 3);
+    dir_entry->extension[0] = '\0';
     dir_entry->attributes = ATTR_DIRECTORY;
     dir_entry->creation_time = _create_fat_time();
     dir_entry->creation_date = _create_fat_date();
     dir_entry->last_access_date = dir_entry->creation_date;
     dir_entry->last_modification_time = dir_entry->creation_time;
     dir_entry->last_modification_date = dir_entry->creation_date;
-    
+   
     // File initially has no clusters
     dir_entry->file_size = 0;
     dir_entry->first_cluster_low = temp;
     
     // Write the directory entry
     ata_write_sectors(dir_sector, 1, temp_sector);
-    
     current_cluster = temp;
-    vga_print("oy");
     return true;
 }
 
@@ -878,10 +873,10 @@ bool fat16_change_directory(const char *path) {
         return true;
     } 
     if (str_cmp(path, "..")) {
-        if (str_cmp(current_path, "/")) {
-            return true;
-        }
         str_replace_last_char(current_path, '/', '\0');
+        if (current_path[0] == '\0') {
+            str_cat(current_path, "/");
+        }
         return true;
     }
     if (str_len(path) + str_len(current_path) < 255) {
@@ -925,6 +920,7 @@ bool fat16_delete_directory(const char *dir_name) {
     bool is_empty = true;
     u16_t cluster_to_scan = target_dir_cluster;
     dir_entry_t *sub_entries;
+
     // A directory is empty if it only contains "." and ".."
     while (cluster_to_scan >= 2 && cluster_to_scan < FAT16_EOC) {
         u32_t current_data_sector = _cluster_to_sector(cluster_to_scan);
@@ -966,7 +962,7 @@ bool fat16_delete_directory(const char *dir_name) {
         cluster_to_scan = _get_next_cluster(cluster_to_scan);
     }
 
-    end_emptiness_check:
+end_emptiness_check:
     current_cluster = original_parent_cluster; // Restore current_cluster
 
     if (!is_empty) {
@@ -1006,24 +1002,24 @@ static u16_t _create_fat_time() {
     return (0 << 11) | (0 << 5) | 0;  // Hour(0-23), Minute(0-59), Second/2(0-29)
 }
 
-// Convert 8.3 filename to FAT format (space padded)
+// Convert 8.3 filename to FAT format 
 static void _filename_to_fat83(const char *filename, u8_t *name, u8_t *ext) {
     // Initialize with spaces
     for (int i = 0; i < 8; i++) name[i] = ' ';
     for (int i = 0; i < 3; i++) ext[i] = ' ';
     
     // Filter invalid characters and convert to uppercase
-    int nameIdx = 0;
+    int name_idx = 0;
     for (int i = 0; i < 8 && filename[i] && filename[i] != '.'; i++) {
         char c = str_to_upper(filename[i]);
         // Skip invalid FAT characters
-        if (c < 0x20 || c > 0x7E || 
+        if (c < 0x20 || c > 0x7e || 
             c == '"' || c == '*' || c == '+' || c == ',' || c == '.' || 
             c == '/' || c == ':' || c == ';' || c == '<' || c == '=' || 
             c == '>' || c == '?' || c == '[' || c == '\\' || c == ']' || c == '|') {
             continue;
         }
-        name[nameIdx++] = c;
+        name[name_idx++] = c;
     }
     
     // Find extension
@@ -1031,31 +1027,37 @@ static void _filename_to_fat83(const char *filename, u8_t *name, u8_t *ext) {
     if (extension) {
         extension++; // Skip the '.'
         // Copy extension part
-        int extIdx = 0;
+        int ext_idx = 0;
         for (int i = 0; i < 3 && extension[i]; i++) {
             char c = str_to_upper(extension[i]);
             // Skip invalid FAT characters
-            if (c < 0x20 || c > 0x7E || 
+            if (c < 0x20 || c > 0x7e || 
                 c == '"' || c == '*' || c == '+' || c == ',' || c == '.' || 
                 c == '/' || c == ':' || c == ';' || c == '<' || c == '=' || 
                 c == '>' || c == '?' || c == '[' || c == '\\' || c == ']' || c == '|') {
                 continue;
             }
-            ext[extIdx++] = c;
+            ext[ext_idx++] = c;
         }
     }
 }
 
 // Compare a filename with a directory entry
 static bool _filename_matches(const char *filename, const dir_entry_t *entry) {
-    u8_t name[8], ext[3];
-    _filename_to_fat83(filename, name, ext);
-
-    // Compare name and extension
-    for (int i = 0; i < 8; i++)
-        if (name[i] != entry->filename[i]) return false;
-    for (int i = 0; i < 3; i++)
-        if (ext[i] != entry->extension[i]) return false;
+    if (entry->attributes == ATTR_ARCHIVE) {
+        u8_t name[8], ext[3];
+        _filename_to_fat83(filename, name, ext);
+    
+        // Compare name and extension
+        for (int i = 0; i < 8; i++)
+            if (name[i] != entry->filename[i]) return false;
+        for (int i = 0; i < 3; i++)
+            if (ext[i] != entry->extension[i]) return false;
+    } else {
+        if (!str_cmp(filename, entry->filename)) {
+            return false;
+        }
+    }
     
     return true;
 }
@@ -1158,7 +1160,7 @@ static bool _find_file(const char *filename, dir_entry_t *entry, u32_t *dir_sect
         u16_t cluster_to_scan = current_cluster;
         while (cluster_to_scan >= 2 && cluster_to_scan < FAT16_EOC) {
             u32_t current_dir_sector_start = _cluster_to_sector(cluster_to_scan);
-            for (u32_t sec_offset = 0; sec_offset < fat16_info.boot_record.sectors_per_cluster; ++sec_offset) {
+            for (u32_t sec_offset = 0; sec_offset < fat16_info.boot_record.sectors_per_cluster; sec_offset++) {
                 u32_t actual_sector = current_dir_sector_start + sec_offset;
                 if (ata_read_sectors(actual_sector, 1, temp_sector)) return false; // Read error
                 

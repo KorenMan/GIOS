@@ -136,6 +136,7 @@ bool test_file_delete() {
     
     return file_gone;
 }
+
 bool test_large_file() {
     const char *filename = "LARGE.TXT";
     char large_buffer[TEST_BUFFER_SIZE];
@@ -211,7 +212,7 @@ bool test_create_directory() {
     if (!create_result) {
         return false;
     }
-    
+    // fat16_list_files();
     // Try to change to the directory to verify it exists
     bool change_result = fat16_change_directory(dir_name);
     if (!change_result) {
@@ -341,7 +342,6 @@ bool test_files_in_directories() {
 bool test_delete_directory() {
     const char *parent_dir = "PARENT";
     const char *child_dir = "CHILD";
-    
     // Create nested directory structure
     if (!fat16_create_directory(parent_dir)) {
         return false;
@@ -360,7 +360,6 @@ bool test_delete_directory() {
         return false;
     }
     
-    // Delete parent directory (should delete child too)
     if (fat16_delete_directory(parent_dir)) {
         return false;
     }
@@ -369,7 +368,9 @@ bool test_delete_directory() {
     if (!fat16_change_directory(parent_dir)) {
         return false;
     }
+    fat16_list_files();
     if (!fat16_delete_directory(child_dir)) {
+        vga_print("here"); 
         return false;
     }
     
