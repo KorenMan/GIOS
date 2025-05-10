@@ -4,9 +4,13 @@
 #include "../lib/memory.h"
 #include "../lib/string.h"
 
-// Global filesystem information
+// Filesystem information
 static u8_t temp_sector[SECTOR_SIZE];
 static fat16_info_t fat16_info;
+
+// Track current directory
+static u16_t current_cluster = 0;
+static char current_path[256] = "/";
 
 static u16_t _create_fat_date();
 static u16_t _create_fat_time();
@@ -42,7 +46,7 @@ bool fat16_init() {
    
     fat16_info.data_start_sector = fat16_info.root_dir_start_sector + root_dir_sectors;
     fat16_info.cluster_size_bytes = fat16_info.boot_record.sectors_per_cluster * SECTOR_SIZE;
-   
+    
     return true;
 }
 
@@ -103,7 +107,7 @@ bool fat16_format() {
     fat16_info.cluster_size_bytes = fat16_info.boot_record.sectors_per_cluster * SECTOR_SIZE;
     
     // Write boot sector
-    if (ata_write_sectors(0, 1, &fat16_info.boot_record) != 1) {
+    if (ata_write_sectors(0, 1, &fat16_info.boot_record)) {
         return false;
     }
     
@@ -116,11 +120,11 @@ bool fat16_format() {
     fat[1] = 0xffff;  // End of chain marker
     
     // Write first sector of each FAT
-    if (ata_write_sectors(fat16_info.fat_start_sector, 1, temp_sector) != 1) {
+    if (ata_write_sectors(fat16_info.fat_start_sector, 1, temp_sector)) {
         return false;
     }
     
-    if (ata_write_sectors(fat16_info.fat_start_sector + fat_size, 1, temp_sector) != 1) {
+    if (ata_write_sectors(fat16_info.fat_start_sector + fat_size, 1, temp_sector)) {
         return false;
     }
     
@@ -128,18 +132,18 @@ bool fat16_format() {
     mem_set(temp_sector, 0, SECTOR_SIZE);
     
     for (u32_t i = 1; i < fat_size; i++) {
-        if (ata_write_sectors(fat16_info.fat_start_sector + i, 1, temp_sector) != 1) {
+        if (ata_write_sectors(fat16_info.fat_start_sector + i, 1, temp_sector)) {
             return false;
         }
         
-        if (ata_write_sectors(fat16_info.fat_start_sector + fat_size + i, 1, temp_sector) != 1) {
+        if (ata_write_sectors(fat16_info.fat_start_sector + fat_size + i, 1, temp_sector)) {
             return false;
         }
     }
     
     // Clear root directory
     for (u32_t i = 0; i < root_dir_sectors; i++) {
-        if (ata_write_sectors(fat16_info.root_dir_start_sector + i, 1, temp_sector) != 1) {
+        if (ata_write_sectors(fat16_info.root_dir_start_sector + i, 1, temp_sector)) {
             return false;
         }
     }
@@ -553,175 +557,440 @@ bool fat16_rename(const char *old_name, const char *new_name) {
     return true;
 }
 
-// List all files in the root directory
+// List all files in the current directory
 void fat16_list_files() {
-    u32_t root_sectors = ((fat16_info.boot_record.root_dir_entries * DIR_ENTRY_SIZE) + 
-                        (fat16_info.boot_record.bytes_per_sector - 1)) / 
-                        fat16_info.boot_record.bytes_per_sector;
-    
     u32_t file_count = 0;
     u32_t total_bytes = 0;
     char filename_buffer[13]; // 8 + '.' + 3 + null terminator
     char size_str[16];
-    
+    dir_entry_t *entries;
+
+    vga_print("Path: ");
+    vga_print(fat16_get_path()); // Assuming fat16_get_path() returns the current path string
+    vga_print("\n");
     vga_print("Name           Size      Attributes     Date      Time\n");
     vga_print("------------------------------------------------------------\n");
-    
-    for (u32_t i = 0; i < root_sectors; i++) {
-        ata_read_sectors(fat16_info.root_dir_start_sector + i, 1, temp_sector);
-        
-        dir_entry_t *entries = (dir_entry_t *)temp_sector;
-        for (u32_t j = 0; j < ENTRIES_PER_SECTOR; j++) {
-            // Check for end of directory marker
-            if (entries[j].filename[0] == 0) {
-                // We've reached the end of the directory - exit both loops
-                i = root_sectors; // This will exit the outer loop
-                break;            // This exits the inner loop
+
+    if (current_cluster == 0) { // Root directory 
+        u32_t root_dir_sectors = ((fat16_info.boot_record.root_dir_entries * DIR_ENTRY_SIZE) +
+                                (fat16_info.boot_record.bytes_per_sector - 1)) /
+                                fat16_info.boot_record.bytes_per_sector;
+        u32_t entries_processed_in_root = 0;
+
+        for (u32_t i = 0; i < root_dir_sectors; i++) {
+            if (ata_read_sectors(fat16_info.root_dir_start_sector + i, 1, temp_sector)) {
+                vga_print("Error reading root directory sector.\n");
+                return;
             }
-            
-            // Skip deleted entries
-            if (entries[j].filename[0] == 0xe5) {
-                continue;
-            }
-            
-            // Additional validation to ensure this is a valid directory entry
-            // Check for invalid characters in filename (control chars, specific symbols)
-            bool valid_entry = true;
-            for (int k = 0; k < 8; k++) {
-                char c = entries[j].filename[k];
-                // Valid characters are: uppercase letters, numbers, and specific symbols
-                // Control characters and lowercase letters are not valid in FAT filenames
-                if (c != ' ' && c != 0 && (c < 0x20 || c > 0x7E || 
-                    c == '"' || c == '*' || c == '/' || c == ':' || 
-                    c == '<' || c == '>' || c == '?' || c == '\\' || c == '|')) {
-                    valid_entry = false;
-                    break;
+            entries = (dir_entry_t *)temp_sector;
+
+            for (u32_t j = 0; j < ENTRIES_PER_SECTOR; j++) {
+                if (entries_processed_in_root >= fat16_info.boot_record.root_dir_entries) {
+                    goto end_listing; // All root directory entries processed
                 }
-            }
-            
-            // Skip entries that fail validation
-            if (!valid_entry) {
-                continue;
-            }
-            
-            // Skip volume ID entries
-            if (entries[j].attributes & ATTR_VOLUME_ID) {
-                continue;
-            }
-            
-            // Validate that first cluster is within valid range
-            if (entries[j].first_cluster_low < 2 && 
-                entries[j].first_cluster_low != 0 && 
-                !(entries[j].attributes & ATTR_DIRECTORY)) {
-                continue;
-            }
-            
-            // Rest of your existing code for displaying the file...
-            
-            // Check for valid attributes
-            if ((entries[j].attributes & 0x80) || 
-                (entries[j].attributes & ATTR_VOLUME_ID && entries[j].attributes != ATTR_VOLUME_ID) || (!entries[j].attributes)) {
-                continue; // Skip entries with invalid attributes
-            }
-            
-            // Convert the FAT filename (8.3 format) to a standard filename
-            mem_set(filename_buffer, 0, 13);
-            
-            // Copy the filename, removing trailing spaces
-            u32_t name_len = 0;
-            for (u32_t k = 0; k < 8; k++) {
-                if (entries[j].filename[k] != ' ') {
+                if (entries[j].filename[0] == 0x00) { // End of directory
+                    goto end_listing;
+                }
+                if (entries[j].filename[0] == 0xe5) { // Deleted entry
+                    entries_processed_in_root++;
+                    continue;
+                }
+
+                // Process and print entry
+                mem_set(filename_buffer, 0, sizeof(filename_buffer));
+                u32_t name_len = 0;
+                for (u32_t k = 0; k < 8; k++) {
+                    if (entries[j].filename[k] == ' ') break;
                     filename_buffer[name_len++] = entries[j].filename[k];
                 }
-            }
-            
-            // Add extension if it exists
-            if (entries[j].extension[0] != ' ') {
-                filename_buffer[name_len++] = '.';
-                for (u32_t k = 0; k < 3; k++) {
-                    if (entries[j].extension[k] != ' ') {
+                if (entries[j].extension[0] != ' ') {
+                    filename_buffer[name_len++] = '.';
+                    for (u32_t k = 0; k < 3; k++) {
+                        if (entries[j].extension[k] == ' ') break;
                         filename_buffer[name_len++] = entries[j].extension[k];
                     }
                 }
+
+                vga_print(filename_buffer);
+                for (u32_t padding = name_len; padding < 13; padding++) vga_print(" ");
+
+                if (entries[j].attributes & ATTR_DIRECTORY) {
+                    vga_print("<DIR>        ");
+                } else {
+                    str_int_to_dec(entries[j].file_size, size_str, 10);
+                    vga_print(size_str);
+                    for (u32_t padding = str_len(size_str); padding < 14; padding++) vga_print(" ");
+                }
+
+                vga_print((entries[j].attributes & ATTR_READ_ONLY) ? "R" : "-");
+                vga_print((entries[j].attributes & ATTR_HIDDEN) ? "H" : "-");
+                vga_print((entries[j].attributes & ATTR_SYSTEM) ? "S" : "-");
+                vga_print((entries[j].attributes & ATTR_ARCHIVE) ? "A" : "-");
+                vga_print("     "); // Space before date
+
+                u16_t date = entries[j].last_modification_date;
+                u8_t day = date & 0x1f;
+                u8_t month = (date >> 5) & 0xf;
+                u16_t year = 1980 + (date >> 9);
+                if (day < 10) vga_print("0"); str_int_to_dec(day, size_str, 2); vga_print(size_str); vga_print("/");
+                if (month < 10) vga_print("0"); str_int_to_dec(month, size_str, 2); vga_print(size_str); vga_print("/");
+                str_int_to_dec(year, size_str, 4); vga_print(size_str); vga_print("  ");
+
+                u16_t time = entries[j].last_modification_time;
+                u8_t hour = time >> 11;
+                u8_t minute = (time >> 5) & 0x3f;
+                if (hour < 10) vga_print("0"); str_int_to_dec(hour, size_str, 2); vga_print(size_str); vga_print(":");
+                if (minute < 10) vga_print("0"); str_int_to_dec(minute, size_str, 2); vga_print(size_str);
+                vga_print("\n");
+                // (Duplicated processing block end)
+
+                file_count++;
+                if (!(entries[j].attributes & ATTR_DIRECTORY)) {
+                    total_bytes += entries[j].file_size;
+                }
+                entries_processed_in_root++;
             }
-            
-            // Add null terminator
-            filename_buffer[name_len] = '\0';
-            
-            // Print filename with padding
-            vga_print(filename_buffer);
-            for (u32_t padding = name_len; padding < 13; padding++) {
-                vga_print(" ");
-            }
-            
-            // Print file size
-            str_int_to_dec(entries[j].file_size, size_str, 10);
-            vga_print(size_str);
-            for (u32_t padding = str_len(size_str); padding < 14; padding++) {
-                vga_print(" ");
-            }
-            
-            // Print attributes
-            vga_print((entries[j].attributes & ATTR_READ_ONLY) ? "R" : "-");
-            vga_print((entries[j].attributes & ATTR_HIDDEN) ? "H" : "-");
-            vga_print((entries[j].attributes & ATTR_SYSTEM) ? "S" : "-");
-            vga_print((entries[j].attributes & ATTR_DIRECTORY) ? "D" : "-");
-            vga_print((entries[j].attributes & ATTR_ARCHIVE) ? "A" : "-");
-            vga_print("     ");
-            
-            // Print date (DD/MM/YYYY format)
-            u16_t date = entries[j].last_modification_date;
-            u8_t day = date & 0x1F;
-            u8_t month = (date >> 5) & 0xF;
-            u16_t year = 1980 + (date >> 9);
-            
-            if (day < 10) vga_print("0");
-            str_int_to_dec(day, size_str, 2);
-            vga_print(size_str);
-            vga_print("/");
-            
-            if (month < 10) vga_print("0");
-            str_int_to_dec(month, size_str, 2);
-            vga_print(size_str);
-            vga_print("/");
-            
-            str_int_to_dec(year, size_str, 5);
-            vga_print(size_str);
-            vga_print(" ");
-            vga_print(" ");
-            vga_print(" ");
-            
-            // Print time (HH:MM format)
-            u16_t time = entries[j].last_modification_time;
-            u8_t hour = time >> 11;
-            u8_t minute = (time >> 5) & 0x3F;
-            
-            if (hour < 10) vga_print("0");
-            str_int_to_dec(hour, size_str, 2);
-            vga_print(size_str);
-            vga_print(":");
-            
-            if (minute < 10) vga_print("0");
-            str_int_to_dec(minute, size_str, 2);
-            vga_print(size_str);
-            
-            vga_print("\n");
-            
-            // Update counters
-            file_count++;
-            total_bytes += entries[j].file_size;
         }
+    } else if (current_cluster >= 2) { // Subdirectory
+        u16_t cluster_to_list = current_cluster;
+        while (cluster_to_list >= 2 && cluster_to_list < FAT16_EOC) {
+            u32_t first_sector_of_cluster = _cluster_to_sector(cluster_to_list);
+
+            for (u32_t sec_offset = 0; sec_offset < fat16_info.boot_record.sectors_per_cluster; ++sec_offset) {
+                if (ata_read_sectors(first_sector_of_cluster + sec_offset, 1, temp_sector)) {
+                    vga_print("Error reading directory sector.\n");
+                    return;
+                }
+                entries = (dir_entry_t *)temp_sector;
+
+                for (u32_t j = 0; j < ENTRIES_PER_SECTOR; ++j) {
+                    if (entries[j].filename[0] == 0x00) { // End of directory
+                        goto end_listing;
+                    }
+                    if (entries[j].filename[0] == 0xe5) { // Deleted entry
+                        continue;
+                    }
+
+                    // Process and print entry
+                    mem_set(filename_buffer, 0, sizeof(filename_buffer));
+                    u32_t name_len = 0;
+                    for (u32_t k = 0; k < 8; k++) {
+                        if (entries[j].filename[k] == ' ') break;
+                        filename_buffer[name_len++] = entries[j].filename[k];
+                    }
+                    if (entries[j].extension[0] != ' ') {
+                        filename_buffer[name_len++] = '.';
+                        for (u32_t k = 0; k < 3; k++) {
+                            if (entries[j].extension[k] == ' ') break;
+                            filename_buffer[name_len++] = entries[j].extension[k];
+                        }
+                    }
+
+                    vga_print(filename_buffer);
+                    for (u32_t padding = name_len; padding < 13; padding++) vga_print(" ");
+
+                    if (entries[j].attributes & ATTR_DIRECTORY) {
+                        vga_print("<DIR>        "); // 13 characters for size field + 1 space
+                    } else {
+                        str_int_to_dec(entries[j].file_size, size_str, 10);
+                        vga_print(size_str);
+                        for (u32_t padding = str_len(size_str); padding < 14; padding++) vga_print(" ");
+                    }
+
+                    vga_print((entries[j].attributes & ATTR_READ_ONLY) ? "R" : "-");
+                    vga_print((entries[j].attributes & ATTR_HIDDEN) ? "H" : "-");
+                    vga_print((entries[j].attributes & ATTR_SYSTEM) ? "S" : "-");
+                    vga_print((entries[j].attributes & ATTR_ARCHIVE) ? "A" : "-");
+                    vga_print("     "); // Space before date
+
+                    u16_t date = entries[j].last_modification_date;
+                    u8_t day = date & 0x1f;
+                    u8_t month = (date >> 5) & 0xf;
+                    u16_t year = 1980 + (date >> 9);
+                    if (day < 10) vga_print("0"); str_int_to_dec(day, size_str, 2); vga_print(size_str); vga_print("/");
+                    if (month < 10) vga_print("0"); str_int_to_dec(month, size_str, 2); vga_print(size_str); vga_print("/");
+                    str_int_to_dec(year, size_str, 4); vga_print(size_str); vga_print("  ");
+
+                    u16_t time = entries[j].last_modification_time;
+                    u8_t hour = time >> 11;
+                    u8_t minute = (time >> 5) & 0x3f;
+                    if (hour < 10) vga_print("0"); str_int_to_dec(hour, size_str, 2); vga_print(size_str); vga_print(":");
+                    if (minute < 10) vga_print("0"); str_int_to_dec(minute, size_str, 2); vga_print(size_str);
+                    vga_print("\n");
+
+                    file_count++;
+                     if (!(entries[j].attributes & ATTR_DIRECTORY)) {
+                        total_bytes += entries[j].file_size;
+                    }
+                }
+            }
+            cluster_to_list = _get_next_cluster(cluster_to_list);
+        }
+    } else {
+        vga_print("Invalid current cluster for listing.\n");
+        return;
     }
-    
-    // Print summary
+
+end_listing:
     vga_print("\nTotal files: ");
     str_int_to_dec(file_count, size_str, 6);
     vga_print(size_str);
-    
+
     vga_print(", Total size: ");
     str_int_to_dec(total_bytes, size_str, 16);
     vga_print(size_str);
     vga_print(" bytes\n");
+}
+
+// Create a sub directory
+bool fat16_create_directory(const char *dir_name) {
+    // Check if dir already exists
+    if (_find_file(dir_name, NULL, NULL, NULL)) {
+        return false; // Dir already exists
+    }
+    
+    // Find a free directory entry
+    u32_t dir_sector, dir_offset;
+    if (!_find_free_dir_entry(&dir_sector, &dir_offset)) {
+        return false; // No free directory entries
+    }
+    
+    // Read the sector to modify the entry
+    ata_read_sectors(dir_sector, 1, temp_sector);
+    
+    // Get pointer to the directory entry
+    dir_entry_t *dir_entry = (dir_entry_t *)(temp_sector + dir_offset);
+    
+    // Clear the entry first
+    mem_set(dir_entry, 0, sizeof(dir_entry_t));
+    
+    // Set filename
+    _filename_to_fat83(dir_name, dir_entry->filename, NULL);
+    
+    // Set attributes and times
+    dir_entry->attributes = ATTR_DIRECTORY;
+    dir_entry->creation_time = _create_fat_time();
+    dir_entry->creation_date = _create_fat_date();
+    dir_entry->last_access_date = dir_entry->creation_date;
+    dir_entry->last_modification_time = dir_entry->creation_time;
+    dir_entry->last_modification_date = dir_entry->creation_date;
+    
+    // File initially has no clusters
+    dir_entry->file_size = 0;
+    dir_entry->first_cluster_low = _find_free_cluster();
+    if (dir_entry->first_cluster_low == 0) {
+        return false;
+    }
+    
+    // Write the directory entry
+    ata_write_sectors(dir_sector, 1, temp_sector);
+    
+    u16_t temp = current_cluster;
+    current_cluster = dir_entry->first_cluster_low;
+        
+    // DOT dir
+    
+    // Find a free directory entry
+    if (!_find_free_dir_entry(&dir_sector, &dir_offset)) {
+        return false; // No free directory entries
+    }
+    
+    // Read the sector to modify the entry
+    ata_read_sectors(dir_sector, 1, temp_sector);
+    
+    // Get pointer to the directory entry
+    dir_entry = (dir_entry_t *)(temp_sector + dir_offset);
+    
+    // Clear the entry first
+    mem_set(dir_entry, 0, sizeof(dir_entry_t));
+    
+    // Set filename
+    _filename_to_fat83(dir_name, ".", NULL);
+    
+    // Set attributes and times
+    dir_entry->attributes = ATTR_DIRECTORY;
+    dir_entry->creation_time = _create_fat_time();
+    dir_entry->creation_date = _create_fat_date();
+    dir_entry->last_access_date = dir_entry->creation_date;
+    dir_entry->last_modification_time = dir_entry->creation_time;
+    dir_entry->last_modification_date = dir_entry->creation_date;
+    
+    // File initially has no clusters
+    dir_entry->file_size = 0;
+    dir_entry->first_cluster_low = current_cluster;
+    
+    // Write the directory entry
+    ata_write_sectors(dir_sector, 1, temp_sector);
+    
+    // DOTDOT dir
+
+    // Find a free directory entry
+    if (!_find_free_dir_entry(&dir_sector, &dir_offset)) {
+        return false; // No free directory entries
+    }
+    
+    // Read the sector to modify the entry
+    ata_read_sectors(dir_sector, 1, temp_sector);
+    
+    // Get pointer to the directory entry
+    dir_entry = (dir_entry_t *)(temp_sector + dir_offset);
+    
+    // Clear the entry first
+    mem_set(dir_entry, 0, sizeof(dir_entry_t));
+    
+    // Set filename
+    _filename_to_fat83(dir_name, "..", NULL);
+    
+    // Set attributes and times
+    dir_entry->attributes = ATTR_DIRECTORY;
+    dir_entry->creation_time = _create_fat_time();
+    dir_entry->creation_date = _create_fat_date();
+    dir_entry->last_access_date = dir_entry->creation_date;
+    dir_entry->last_modification_time = dir_entry->creation_time;
+    dir_entry->last_modification_date = dir_entry->creation_date;
+    
+    // File initially has no clusters
+    dir_entry->file_size = 0;
+    dir_entry->first_cluster_low = temp;
+    
+    // Write the directory entry
+    ata_write_sectors(dir_sector, 1, temp_sector);
+    
+    current_cluster = temp;
+    vga_print("oy");
+    return true;
+}
+
+// Change the path relativly
+bool fat16_change_directory(const char *path) {
+    dir_entry_t entry;
+    if (!_find_file(path, &entry, NULL, NULL)) {
+        return false;
+    }
+
+    if (entry.attributes != ATTR_DIRECTORY) {
+        return false;
+    }
+    
+    current_cluster = entry.first_cluster_low;
+
+    if (str_cmp(path, ".")) {
+        return true;
+    } 
+    if (str_cmp(path, "..")) {
+        if (str_cmp(current_path, "/")) {
+            return true;
+        }
+        str_replace_last_char(current_path, '/', '\0');
+        return true;
+    }
+    if (str_len(path) + str_len(current_path) < 255) {
+        if (!str_cmp(current_path, "/")) {
+            str_cat(current_path, "/");
+        }
+        str_cat(current_path, path);
+        return true;
+    }
+    return false;
+}
+
+// Returns the current path
+char *fat16_get_path() {
+    return current_path;
+}
+
+// Delete an empty directory
+bool fat16_delete_directory(const char *dir_name) {
+    dir_entry_t entry;
+    u32_t dir_sector, dir_offset;
+    u16_t original_parent_cluster = current_cluster;
+
+    if (!_find_file(dir_name, &entry, &dir_sector, &dir_offset)) {
+        return false; // Directory not found in current_cluster
+    }
+
+    if (!(entry.attributes & ATTR_DIRECTORY)) {
+        return false; // Not a directory
+    }
+
+    // Should prevent deletion of "." or ".."
+    if (str_cmp(dir_name, ".") || str_cmp(dir_name, "..")) {
+        return false; 
+    }
+    
+    // Temporarily change current_cluster to the directory being inspected
+    u16_t target_dir_cluster = entry.first_cluster_low;
+    current_cluster = target_dir_cluster;
+
+    bool is_empty = true;
+    u16_t cluster_to_scan = target_dir_cluster;
+    dir_entry_t *sub_entries;
+    // A directory is empty if it only contains "." and ".."
+    while (cluster_to_scan >= 2 && cluster_to_scan < FAT16_EOC) {
+        u32_t current_data_sector = _cluster_to_sector(cluster_to_scan);
+
+        for (u32_t sec_offset = 0; sec_offset < fat16_info.boot_record.sectors_per_cluster; ++sec_offset) {
+            if (ata_read_sectors(current_data_sector + sec_offset, 1, temp_sector)) {
+                current_cluster = original_parent_cluster; // Restore
+                return false; // Read error
+            }
+
+            sub_entries = (dir_entry_t *)temp_sector;
+            for (u32_t i = 0; i < ENTRIES_PER_SECTOR; ++i) {
+                if (sub_entries[i].filename[0] == 0x00) { // End of directory
+                    goto end_emptiness_check;
+                }
+                if (sub_entries[i].filename[0] == 0xe5) { // Deleted entry
+                    continue;
+                }
+
+                // Check if the entry is "." or ".."
+                bool is_dot_or_dotdot = false;
+                if (sub_entries[i].filename[0] == '.' && sub_entries[i].filename[1] == ' ') {
+                    is_dot_or_dotdot = true; // Matches "."
+                     for(int k=2; k<8; ++k) if(sub_entries[i].filename[k] != ' ') is_dot_or_dotdot = false;
+                     for(int k=0; k<3; ++k) if(sub_entries[i].extension[k] != ' ') is_dot_or_dotdot = false;
+                }
+                if (!is_dot_or_dotdot && sub_entries[i].filename[0] == '.' && sub_entries[i].filename[1] == '.' && sub_entries[i].filename[2] == ' ') {
+                    is_dot_or_dotdot = true; // Matches ".."
+                    for(int k=3; k<8; ++k) if(sub_entries[i].filename[k] != ' ') is_dot_or_dotdot = false;
+                    for(int k=0; k<3; ++k) if(sub_entries[i].extension[k] != ' ') is_dot_or_dotdot = false;
+                }
+
+                if (!is_dot_or_dotdot) {
+                    is_empty = false;
+                    goto end_emptiness_check;
+                }
+            }
+        }
+        cluster_to_scan = _get_next_cluster(cluster_to_scan);
+    }
+
+    end_emptiness_check:
+    current_cluster = original_parent_cluster; // Restore current_cluster
+
+    if (!is_empty) {
+        return false; // Directory not empty
+    }
+
+    // Mark directory entry as deleted in its parent directory
+    if (ata_read_sectors(dir_sector, 1, temp_sector)) {
+        return false; // Read error
+    }
+    temp_sector[dir_offset] = 0xe5; // Mark as deleted (first byte of filename)
+    if (ata_write_sectors(dir_sector, 1, temp_sector)) {
+        return false; // Write error
+    }
+
+    // Free clusters allocated to this directory
+    u16_t cluster_to_free = entry.first_cluster_low;
+    while (cluster_to_free >= 2 && cluster_to_free < FAT16_EOC) {
+        u16_t next_cluster = _get_next_cluster(cluster_to_free);
+        _update_fat_entry(cluster_to_free, FAT_ENTRY_FREE);
+        cluster_to_free = next_cluster;
+    }
+
+    return true;
 }
 
 /* =============================== Private Functions =============================== */
@@ -859,72 +1128,140 @@ static u32_t _cluster_to_sector(u16_t cluster) {
     return fat16_info.data_start_sector + ((cluster - 2) * fat16_info.boot_record.sectors_per_cluster);
 }
 
-// Find a file in the root directory
 static bool _find_file(const char *filename, dir_entry_t *entry, u32_t *dir_sector, u32_t *dir_offset) {
-    u32_t root_sectors = ((fat16_info.boot_record.root_dir_entries * DIR_ENTRY_SIZE) +
-                        (fat16_info.boot_record.bytes_per_sector - 1)) /
-                        fat16_info.boot_record.bytes_per_sector;
-   
-    for (u32_t i = 0; i < root_sectors; i++) {
-        ata_read_sectors(fat16_info.root_dir_start_sector + i, 1, temp_sector);
-       
-        dir_entry_t *entries = (dir_entry_t *)temp_sector;
-        for (u32_t j = 0; j < ENTRIES_PER_SECTOR; j++) {
-            // Skip unused entries
-            if (entries[j].filename[0] == 0 || entries[j].filename[0] == 0xe5) {
-                continue;
-            }
-           
-            // Skip directory and volume label entries
-            if (entries[j].attributes & (ATTR_DIRECTORY | ATTR_VOLUME_ID)) {
-                continue;
-            }
-           
-            // Check if filename matches
-            if (_filename_matches(filename, &entries[j])) {
-                if (entry) *entry = entries[j];
-                if (dir_sector) *dir_sector = fat16_info.root_dir_start_sector + i;
-                if (dir_offset) *dir_offset = j * DIR_ENTRY_SIZE;
-                return true;
+    dir_entry_t *entries;
+    if (current_cluster == 0) { // Root directory
+        u32_t root_dir_total_entries = fat16_info.boot_record.root_dir_entries;
+        u32_t entries_processed = 0;
+
+        for (u32_t i = 0; i < fat16_info.root_dir_start_sector + (root_dir_total_entries * DIR_ENTRY_SIZE / SECTOR_SIZE) - fat16_info.root_dir_start_sector ; i++) { // Iterate sectors of root dir
+            u32_t current_sector_abs = fat16_info.root_dir_start_sector + i;
+            if (ata_read_sectors(current_sector_abs, 1, temp_sector)) return false; // Read error
+
+            entries = (dir_entry_t *)temp_sector;
+            for (u32_t j = 0; j < ENTRIES_PER_SECTOR; j++) {
+                if (entries_processed >= root_dir_total_entries) return false; // Exceeded max root entries
+
+                if (entries[j].filename[0] == 0x00) return false; // End of directory
+                if (entries[j].filename[0] == 0xe5) {entries_processed++; continue;}    // Deleted entry
+
+                if (_filename_matches(filename, &entries[j])) {
+                    if (entry) *entry = entries[j];
+                    if (dir_sector) *dir_sector = current_sector_abs;
+                    if (dir_offset) *dir_offset = j * DIR_ENTRY_SIZE;
+                    return true;
+                }
+                entries_processed++;
             }
         }
+    } else { // Subdirectory (current_cluster >= 2)
+        u16_t cluster_to_scan = current_cluster;
+        while (cluster_to_scan >= 2 && cluster_to_scan < FAT16_EOC) {
+            u32_t current_dir_sector_start = _cluster_to_sector(cluster_to_scan);
+            for (u32_t sec_offset = 0; sec_offset < fat16_info.boot_record.sectors_per_cluster; ++sec_offset) {
+                u32_t actual_sector = current_dir_sector_start + sec_offset;
+                if (ata_read_sectors(actual_sector, 1, temp_sector)) return false; // Read error
+                
+                entries = (dir_entry_t *)temp_sector;
+                for (u32_t j = 0; j < ENTRIES_PER_SECTOR; j++) {
+                    if (entries[j].filename[0] == 0x00) return false; // End of directory
+                    if (entries[j].filename[0] == 0xe5) continue;
+
+                    if (_filename_matches(filename, &entries[j])) {
+                        if (entry) *entry = entries[j];
+                        if (dir_sector) *dir_sector = actual_sector;
+                        if (dir_offset) *dir_offset = j * DIR_ENTRY_SIZE;
+                        return true;
+                    }
+                }
+            }
+            cluster_to_scan = _get_next_cluster(cluster_to_scan);
+        }
     }
-   
     return false;
 }
 
 // Find a free directory entry
 static bool _find_free_dir_entry(u32_t *dir_sector, u32_t *dir_offset) {
-    u32_t root_sectors = ((fat16_info.boot_record.root_dir_entries * DIR_ENTRY_SIZE) + 
-                        (fat16_info.boot_record.bytes_per_sector - 1)) / 
-                        fat16_info.boot_record.bytes_per_sector;
-    
-    for (u32_t i = 0; i < root_sectors; i++) {
-        ata_read_sectors(fat16_info.root_dir_start_sector + i, 1, temp_sector);
-        
-        dir_entry_t *entries = (dir_entry_t *)temp_sector;
-        for (u32_t j = 0; j < ENTRIES_PER_SECTOR; j++) {
-            // Check for unused entry
-            if (entries[j].filename[0] == 0 || entries[j].filename[0] == 0xe5) {
-                *dir_sector = fat16_info.root_dir_start_sector + i;
-                *dir_offset = j * DIR_ENTRY_SIZE;
+    dir_entry_t *entries;
+    dir_entry_t *entry_ptr;
+    if (current_cluster == 0) { // Root directory
+        u32_t root_dir_total_entries = fat16_info.boot_record.root_dir_entries;
+        u32_t entries_processed = 0;
+        u32_t root_dir_num_sectors = (root_dir_total_entries * DIR_ENTRY_SIZE + SECTOR_SIZE -1) / SECTOR_SIZE;
+
+
+        for (u32_t i = 0; i < root_dir_num_sectors; i++) {
+            u32_t current_sector_abs = fat16_info.root_dir_start_sector + i;
+            if (ata_read_sectors(current_sector_abs, 1, temp_sector)) return false; // Read error
+
+            entries = (dir_entry_t *)temp_sector;
+            for (u32_t j = 0; j < ENTRIES_PER_SECTOR; j++) {
+                 if (entries_processed >= root_dir_total_entries && entries[j].filename[0] != 0x00 && entries[j].filename[0] != 0xe5) {
+                    // This case implies root dir is full and we are past its allocated entries,
+                    return false; 
+                }
+                if (entries[j].filename[0] == 0x00 || entries[j].filename[0] == 0xe5) {
+                    *dir_sector = current_sector_abs;
+                    *dir_offset = j * DIR_ENTRY_SIZE;
+                    
+                    entry_ptr = &entries[j]; // Pointer within temp_sector
+                    u8_t original_first_byte = entry_ptr->filename[0];
+                    mem_set(entry_ptr, 0, sizeof(dir_entry_t));
+                    if (original_first_byte == 0x00) { // If it was a true end-of-dir marker
+                        if ((j + 1) < ENTRIES_PER_SECTOR) {
+                            (entry_ptr + 1)->filename[0] = 0x00; 
+                        } // Else, if end of sector, next sector should start with 00 or be handled by caller
+                    }
+                    ata_write_sectors(*dir_sector, 1, temp_sector); // Write modified sector
+                    
+                    return true;
+                }
+                entries_processed++;
+            }
+        }
+    } else { // Subdirectory (current_cluster >= 2)
+        u16_t cluster_to_scan = current_cluster;
+        u16_t prev_cluster_in_chain = 0; 
+
+        while (cluster_to_scan >= 2 && cluster_to_scan < FAT16_EOC) {
+            u32_t current_dir_sector_start = _cluster_to_sector(cluster_to_scan);
+            for (u32_t sec_offset = 0; sec_offset < fat16_info.boot_record.sectors_per_cluster; ++sec_offset) {
+                u32_t actual_sector = current_dir_sector_start + sec_offset;
+                if (ata_read_sectors(actual_sector, 1, temp_sector)) return false; // Read error
                 
-                // Clear the entire entry to make sure we're starting fresh
-                mem_set(&entries[j], 0, sizeof(dir_entry_t));
-                // Mark it as the last entry if it was the end marker
-                if (entries[j].filename[0] == 0) {
-                    // Make sure the next entry is also properly marked as end
-                    if (j+1 < ENTRIES_PER_SECTOR) {
-                        entries[j+1].filename[0] = 0;
+                entries = (dir_entry_t *)temp_sector;
+                for (u32_t j = 0; j < ENTRIES_PER_SECTOR; j++) {
+                    if (entries[j].filename[0] == 0x00 || entries[j].filename[0] == 0xE5) {
+                        *dir_sector = actual_sector;
+                        *dir_offset = j * DIR_ENTRY_SIZE;
+                        return true;
                     }
                 }
-                
-                // Write the cleared entry back
-                ata_write_sectors(fat16_info.root_dir_start_sector + i, 1, temp_sector);
+            }
+            prev_cluster_in_chain = cluster_to_scan;
+            cluster_to_scan = _get_next_cluster(cluster_to_scan);
+        }
+
+        // If here, all existing clusters in the subdirectory are full. Try to extend.
+        if (prev_cluster_in_chain != 0) { // Check if there was a valid chain to extend
+            u16_t new_cluster = _find_free_cluster(); // This marks new_cluster as EOC in FAT
+            if (new_cluster != 0) { // Found a free cluster
+                _update_fat_entry(prev_cluster_in_chain, new_cluster); // Link previous to new
+
+                // Zero out the new cluster for the directory
+                u32_t new_cluster_sector_start = _cluster_to_sector(new_cluster);
+                mem_set(temp_sector, 0, SECTOR_SIZE); 
+                for (u32_t s_off = 0; s_off < fat16_info.boot_record.sectors_per_cluster; ++s_off) {
+                    ata_write_sectors(new_cluster_sector_start + s_off, 1, temp_sector);
+                }
+
+                // The first entry of this new cluster is now free and zeroed.
+                *dir_sector = new_cluster_sector_start; 
+                *dir_offset = 0; 
                 return true;
             }
         }
     }
-    
-    return false;
+    return false; // No free entry found / could not extend
 }

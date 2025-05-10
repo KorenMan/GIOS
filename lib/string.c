@@ -49,14 +49,14 @@ void str_int_to_dec(int num, char *str, int size) {
     }
 }
 
-char *str_chr(const char *str, char ch) {
+char *str_chr(const char *str, char chr) {
     while (*str) {
-        if (*str == ch) {
+        if (*str == chr) {
             return (char *)str;
         }
         str++;
     }
-    if (ch == '\0') {
+    if (chr == '\0') {
         return (char *)str;
     }
     return 0;
@@ -107,8 +107,8 @@ char *str_cat(char *dest, const char *src) {
     return dest;
 }
 
-bool str_split(const char *str, char ch, char *part1, char *part2, char *part3) {    
-    const char *pos1 = str_chr(str, ch);
+bool str_split(const char *str, char chr, char *part1, char *part2, char *part3) {    
+    const char *pos1 = str_chr(str, chr);
     if (!pos1) {
         while (*str) {
             *part1++ = *str++;
@@ -128,7 +128,7 @@ bool str_split(const char *str, char ch, char *part1, char *part2, char *part3) 
     str++;
     
     // Find the second occurrence of the delimiter.
-    const char *pos2 = str_chr(str, ch);
+    const char *pos2 = str_chr(str, chr);
     if (!pos2) {
         // Only one delimiter found: copy remainder of str into part2.
         while (*str) {
@@ -180,4 +180,19 @@ int str_hex_to_num(const char *str) {
     }
 
     return num;
+}
+
+bool str_replace_last_char(char *str, char old_char, char new_char) {
+    char *last = 0;
+    while(*str) {
+        if (*str == old_char) {
+            last = str;
+        }
+        str++;
+    }
+    if (last) {
+        *last = new_char;
+        return true;
+    }
+    return false;
 }

@@ -90,3 +90,8 @@ u32_t fat16_write(file_t *file, const void *buffer, u32_t size, int position);
 bool fat16_delete(const char *filename);
 bool fat16_rename(const char *old_name, const char *new_name);
 void fat16_list_files();
+bool fat16_create_directory(const char *dir_name);
+bool fat16_change_directory(const char *path);
+char *fat16_get_path();
+bool fat16_delete_directory(const char *dir_name);
+
