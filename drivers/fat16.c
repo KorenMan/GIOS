@@ -559,185 +559,197 @@ bool fat16_rename(const char *old_name, const char *new_name) {
 
 // List all files in the current directory
 void fat16_list_files() {
+    u32_t root_sectors = ((fat16_info.boot_record.root_dir_entries * DIR_ENTRY_SIZE) + 
+                        (fat16_info.boot_record.bytes_per_sector - 1)) / 
+                        fat16_info.boot_record.bytes_per_sector;
+    
     u32_t file_count = 0;
+    u32_t dir_count = 0;
     u32_t total_bytes = 0;
     char filename_buffer[13]; // 8 + '.' + 3 + null terminator
     char size_str[16];
-    dir_entry_t *entries;
-
-    vga_print("Path: ");
-    vga_print(fat16_get_path()); // Assuming fat16_get_path() returns the current path string
-    vga_print("\n");
-    vga_print("Name           Size      Attributes     Date      Time\n");
+    
+    vga_print("Name           Size       Attributes     Date       Time\n");
     vga_print("------------------------------------------------------------\n");
-
-    if (current_cluster == 0) { // Root directory 
-        u32_t root_dir_sectors = ((fat16_info.boot_record.root_dir_entries * DIR_ENTRY_SIZE) +
-                                (fat16_info.boot_record.bytes_per_sector - 1)) /
-                                fat16_info.boot_record.bytes_per_sector;
-        u32_t entries_processed_in_root = 0;
-
-        for (u32_t i = 0; i < root_dir_sectors; i++) {
-            if (ata_read_sectors(fat16_info.root_dir_start_sector + i, 1, temp_sector)) {
-                vga_print("Error reading root directory sector.\n");
-                return;
-            }
-            entries = (dir_entry_t *)temp_sector;
-
-            for (u32_t j = 0; j < ENTRIES_PER_SECTOR; j++) {
-                if (entries_processed_in_root >= fat16_info.boot_record.root_dir_entries) {
-                    goto end_listing; // All root directory entries processed
-                }
-                if (entries[j].filename[0] == 0x00) { // End of directory
-                    goto end_listing;
-                }
-                if (entries[j].filename[0] == 0xe5) { // Deleted entry
-                    entries_processed_in_root++;
-                    continue;
-                }
-
-                // Process and print entry
-                mem_set(filename_buffer, 0, sizeof(filename_buffer));
-                u32_t name_len = 0;
-                for (u32_t k = 0; k < 8; k++) {
-                    if (entries[j].filename[k] == ' ') break;
-                    filename_buffer[name_len++] = entries[j].filename[k];
-                }
-                if (entries[j].extension[0] != ' ') {
-                    filename_buffer[name_len++] = '.';
-                    for (u32_t k = 0; k < 3; k++) {
-                        if (entries[j].extension[k] == ' ') break;
-                        filename_buffer[name_len++] = entries[j].extension[k];
-                    }
-                }
-
-                vga_print(filename_buffer);
-                for (u32_t padding = name_len; padding < 13; padding++) vga_print(" ");
-
-                if (entries[j].attributes & ATTR_DIRECTORY) {
-                    vga_print("<DIR>        ");
-                } else {
-                    str_int_to_dec(entries[j].file_size, size_str, 10);
-                    vga_print(size_str);
-                    for (u32_t padding = str_len(size_str); padding < 14; padding++) vga_print(" ");
-                }
-
-                vga_print((entries[j].attributes & ATTR_READ_ONLY) ? "R" : "-");
-                vga_print((entries[j].attributes & ATTR_HIDDEN) ? "H" : "-");
-                vga_print((entries[j].attributes & ATTR_SYSTEM) ? "S" : "-");
-                vga_print((entries[j].attributes & ATTR_ARCHIVE) ? "A" : "-");
-                vga_print("     "); // Space before date
-
-                u16_t date = entries[j].last_modification_date;
-                u8_t day = date & 0x1f;
-                u8_t month = (date >> 5) & 0xf;
-                u16_t year = 1980 + (date >> 9);
-                if (day < 10) vga_print("0"); str_int_to_dec(day, size_str, 2); vga_print(size_str); vga_print("/");
-                if (month < 10) vga_print("0"); str_int_to_dec(month, size_str, 2); vga_print(size_str); vga_print("/");
-                str_int_to_dec(year, size_str, 4); vga_print(size_str); vga_print("  ");
-
-                u16_t time = entries[j].last_modification_time;
-                u8_t hour = time >> 11;
-                u8_t minute = (time >> 5) & 0x3f;
-                if (hour < 10) vga_print("0"); str_int_to_dec(hour, size_str, 2); vga_print(size_str); vga_print(":");
-                if (minute < 10) vga_print("0"); str_int_to_dec(minute, size_str, 2); vga_print(size_str);
-                vga_print("\n");
-                // (Duplicated processing block end)
-
-                file_count++;
-                if (!(entries[j].attributes & ATTR_DIRECTORY)) {
-                    total_bytes += entries[j].file_size;
-                }
-                entries_processed_in_root++;
-            }
-        }
-    } else if (current_cluster >= 2) { // Subdirectory
-        u16_t cluster_to_list = current_cluster;
-        while (cluster_to_list >= 2 && cluster_to_list < FAT16_EOC) {
-            u32_t first_sector_of_cluster = _cluster_to_sector(cluster_to_list);
-
-            for (u32_t sec_offset = 0; sec_offset < fat16_info.boot_record.sectors_per_cluster; ++sec_offset) {
-                if (ata_read_sectors(first_sector_of_cluster + sec_offset, 1, temp_sector)) {
-                    vga_print("Error reading directory sector.\n");
-                    return;
-                }
-                entries = (dir_entry_t *)temp_sector;
-
-                for (u32_t j = 0; j < ENTRIES_PER_SECTOR; ++j) {
-                    if (entries[j].filename[0] == 0x00) { // End of directory
-                        goto end_listing;
-                    }
-                    if (entries[j].filename[0] == 0xe5) { // Deleted entry
-                        continue;
-                    }
-
-                    // Process and print entry
-                    mem_set(filename_buffer, 0, sizeof(filename_buffer));
-                    u32_t name_len = 0;
-                    for (u32_t k = 0; k < 8; k++) {
-                        if (entries[j].filename[k] == ' ') break;
-                        filename_buffer[name_len++] = entries[j].filename[k];
-                    }
-                    if (entries[j].extension[0] != ' ') {
-                        filename_buffer[name_len++] = '.';
-                        for (u32_t k = 0; k < 3; k++) {
-                            if (entries[j].extension[k] == ' ') break;
-                            filename_buffer[name_len++] = entries[j].extension[k];
-                        }
-                    }
-
-                    vga_print(filename_buffer);
-                    for (u32_t padding = name_len; padding < 13; padding++) vga_print(" ");
-
-                    if (entries[j].attributes & ATTR_DIRECTORY) {
-                        vga_print("<DIR>        "); // 13 characters for size field + 1 space
-                    } else {
-                        str_int_to_dec(entries[j].file_size, size_str, 10);
-                        vga_print(size_str);
-                        for (u32_t padding = str_len(size_str); padding < 14; padding++) vga_print(" ");
-                    }
-
-                    vga_print((entries[j].attributes & ATTR_READ_ONLY) ? "R" : "-");
-                    vga_print((entries[j].attributes & ATTR_HIDDEN) ? "H" : "-");
-                    vga_print((entries[j].attributes & ATTR_SYSTEM) ? "S" : "-");
-                    vga_print((entries[j].attributes & ATTR_ARCHIVE) ? "A" : "-");
-                    vga_print("     "); // Space before date
-
-                    u16_t date = entries[j].last_modification_date;
-                    u8_t day = date & 0x1f;
-                    u8_t month = (date >> 5) & 0xf;
-                    u16_t year = 1980 + (date >> 9);
-                    if (day < 10) vga_print("0"); str_int_to_dec(day, size_str, 2); vga_print(size_str); vga_print("/");
-                    if (month < 10) vga_print("0"); str_int_to_dec(month, size_str, 2); vga_print(size_str); vga_print("/");
-                    str_int_to_dec(year, size_str, 4); vga_print(size_str); vga_print("  ");
-
-                    u16_t time = entries[j].last_modification_time;
-                    u8_t hour = time >> 11;
-                    u8_t minute = (time >> 5) & 0x3f;
-                    if (hour < 10) vga_print("0"); str_int_to_dec(hour, size_str, 2); vga_print(size_str); vga_print(":");
-                    if (minute < 10) vga_print("0"); str_int_to_dec(minute, size_str, 2); vga_print(size_str);
-                    vga_print("\n");
-
-                    file_count++;
-                     if (!(entries[j].attributes & ATTR_DIRECTORY)) {
-                        total_bytes += entries[j].file_size;
-                    }
-                }
-            }
-            cluster_to_list = _get_next_cluster(cluster_to_list);
-        }
+    
+    // Determine which directory we're listing based on current_dir_cluster
+    u32_t start_sector;
+    u32_t sector_count;
+    u16_t directory_cluster = current_cluster;
+    
+    if (current_cluster == 0) {
+        // Root directory
+        start_sector = fat16_info.root_dir_start_sector;
+        sector_count = root_sectors;
     } else {
-        vga_print("Invalid current cluster for listing.\n");
-        return;
+        // Subdirectory
+        start_sector = _cluster_to_sector(current_cluster);
+        sector_count = fat16_info.boot_record.sectors_per_cluster;
     }
+    
+    u32_t sector_index = 0;
+    u32_t next_sector = start_sector;
+    
+    // Loop through all sectors in the current directory only
+    while (sector_index < sector_count) {
+        if (ata_read_sectors(next_sector, 1, temp_sector) < 0) {
+            vga_print("Error reading directory sector\n");
+            return;
+        }
+        
+        dir_entry_t *entries = (dir_entry_t *)temp_sector;
+        for (u32_t j = 0; j < ENTRIES_PER_SECTOR; j++) {
+            // Check for end of directory marker
+            if (entries[j].filename[0] == 0) {
+                // We've reached the end of the directory - exit both loops
+                sector_index = sector_count;
+                break;
+            }
+            
+            // Skip deleted entries
+            if (entries[j].filename[0] == 0xe5) {
+                continue;
+            }          
+            
+            // Additional validation to ensure this is a valid directory entry
+            // Check for invalid characters in filename (control chars, specific symbols)
+            bool valid_entry = true;
+            for (int k = 0; k < 8; k++) {
+                char c = entries[j].filename[k];
+                if (c != ' ' && c != 0 && (c < 0x20 || c > 0x7e || 
+                    c == '"' || c == '*' || c == '/' || c == ':' || 
+                    c == '<' || c == '>' || c == '?' || c == '\\' || c == '|')) {
+                    valid_entry = false;
+                    break;
+                }
+            }
 
-end_listing:
-    vga_print("\nTotal files: ");
+            // Skip entries that fail validation
+            if (!valid_entry) {
+                continue;
+            }
+            
+            // Validate that first cluster is within valid range
+            if (entries[j].first_cluster_low < 2 && 
+                entries[j].first_cluster_low != 0 && 
+                !(entries[j].attributes & ATTR_DIRECTORY)) {
+                continue;
+            }
+
+            // Check for valid attributes
+            if ((entries[j].attributes & 0x80) || 
+                (entries[j].attributes & ATTR_VOLUME_ID && entries[j].attributes != ATTR_VOLUME_ID) || 
+                (!entries[j].attributes)) {
+                continue; // Skip entries with invalid attributes
+            }
+            
+            // Convert the FAT filename (8.3 format) to a standard filename
+            mem_set(filename_buffer, 0, 13);
+            
+            // Copy the filename, removing trailing spaces
+            mem_cpy(filename_buffer, entries[j].filename, str_len(entries[j].filename));
+            if (entries[j].extension[0] != '\0') {
+                str_cat(filename_buffer, ".");
+            }
+            str_cat(filename_buffer, entries[j].extension);
+            
+            // Print filename with padding
+            vga_print(filename_buffer);
+            for (u32_t padding = str_len(filename_buffer); padding < 13; padding++) {
+                vga_print(" ");
+            }
+            
+            // Print file size or <DIR> for directories
+            if (entries[j].attributes & ATTR_DIRECTORY) {
+                vga_print(" <DIR>");
+                for (u32_t padding = 5; padding < 14; padding++) {
+                    vga_print(" ");
+                }
+                dir_count++;
+            } else {
+                str_int_to_dec(entries[j].file_size, size_str, 8);
+                vga_print(size_str);
+                for (u32_t padding = str_len(size_str); padding < 15; padding++) {
+                    vga_print(" ");
+                }
+                total_bytes += entries[j].file_size;
+                file_count++;
+            }
+            
+            // Print attributes
+            vga_print((entries[j].attributes & ATTR_READ_ONLY) ? "R" : "-");
+            vga_print((entries[j].attributes & ATTR_HIDDEN) ? "H" : "-");
+            vga_print((entries[j].attributes & ATTR_SYSTEM) ? "S" : "-");
+            vga_print((entries[j].attributes & ATTR_DIRECTORY) ? "D" : "-");
+            vga_print((entries[j].attributes & ATTR_ARCHIVE) ? "A" : "-");
+            vga_print("     ");
+            
+            // Print date (DD/MM/YYYY format)
+            u16_t date = entries[j].last_modification_date;
+            u8_t day = date & 0x1f;
+            u8_t month = (date >> 5) & 0xf;
+            u16_t year = 1980 + (date >> 9);
+            
+            if (day < 10) vga_print("0");
+            str_int_to_dec(day, size_str, 2);
+            vga_print(size_str);
+            vga_print("/");
+            
+            if (month < 10) vga_print("0");
+            str_int_to_dec(month, size_str, 2);
+            vga_print(size_str);
+            vga_print("/");
+            
+            str_int_to_dec(year, size_str, 5);
+            vga_print(size_str);
+            vga_print(" ");
+            vga_print(" ");
+            vga_print(" ");
+            
+            // Print time (HH:MM format)
+            u16_t time = entries[j].last_modification_time;
+            u8_t hour = time >> 11;
+            u8_t minute = (time >> 5) & 0x3f;
+            
+            if (hour < 10) vga_print("0");
+            str_int_to_dec(hour, size_str, 2);
+            vga_print(size_str);
+            vga_print(":");
+            
+            if (minute < 10) vga_print("0");
+            str_int_to_dec(minute, size_str, 2);
+            vga_print(size_str);
+            
+            vga_print("\n");
+        }
+        
+        sector_index++;
+        next_sector++;
+        
+        // If we're in a subdirectory and we've reached the end of the current cluster,
+        // follow the FAT chain to the next cluster of the *same* directory
+        if (directory_cluster != 0 && 
+            sector_index % fat16_info.boot_record.sectors_per_cluster == 0) {
+            u16_t next_cluster = _get_next_cluster(current_cluster);
+            if (next_cluster >= FAT16_EOC) {
+                break; // End of directory
+            }
+            current_cluster = next_cluster;
+            next_sector = _cluster_to_sector(current_cluster);
+            sector_count += fat16_info.boot_record.sectors_per_cluster;
+        }
+    }
+    
+    vga_print("Total: ");
     str_int_to_dec(file_count, size_str, 6);
     vga_print(size_str);
-
-    vga_print(", Total size: ");
-    str_int_to_dec(total_bytes, size_str, 16);
+    vga_print(" files, ");
+    
+    str_int_to_dec(dir_count, size_str, 6);
+    vga_print(size_str);
+    vga_print(" directories, ");
+    
+    str_int_to_dec(total_bytes, size_str, 9);
     vga_print(size_str);
     vga_print(" bytes\n");
 }
@@ -786,7 +798,11 @@ bool fat16_create_directory(const char *dir_name) {
     
     u16_t temp = current_cluster;
     current_cluster = dir_entry->first_cluster_low;
-        
+
+    // Zero out the new cluster 
+    mem_set(temp_sector, 0, SECTOR_SIZE);
+    ata_write_sectors(_cluster_to_sector(current_cluster), 1, temp_sector);
+
     // DOT dir
     
     // Find a free directory entry
@@ -904,7 +920,7 @@ bool fat16_delete_directory(const char *dir_name) {
         return false; // Directory not found in current_cluster
     }
 
-    if (!(entry.attributes & ATTR_DIRECTORY)) {
+    if (entry.attributes != ATTR_DIRECTORY) {
         return false; // Not a directory
     }
 
@@ -925,7 +941,7 @@ bool fat16_delete_directory(const char *dir_name) {
     while (cluster_to_scan >= 2 && cluster_to_scan < FAT16_EOC) {
         u32_t current_data_sector = _cluster_to_sector(cluster_to_scan);
 
-        for (u32_t sec_offset = 0; sec_offset < fat16_info.boot_record.sectors_per_cluster; ++sec_offset) {
+        for (u32_t sec_offset = 0; sec_offset < fat16_info.boot_record.sectors_per_cluster; sec_offset++) {
             if (ata_read_sectors(current_data_sector + sec_offset, 1, temp_sector)) {
                 current_cluster = original_parent_cluster; // Restore
                 return false; // Read error
@@ -941,22 +957,15 @@ bool fat16_delete_directory(const char *dir_name) {
                 }
 
                 // Check if the entry is "." or ".."
-                bool is_dot_or_dotdot = false;
-                if (sub_entries[i].filename[0] == '.' && sub_entries[i].filename[1] == ' ') {
-                    is_dot_or_dotdot = true; // Matches "."
-                     for(int k=2; k<8; ++k) if(sub_entries[i].filename[k] != ' ') is_dot_or_dotdot = false;
-                     for(int k=0; k<3; ++k) if(sub_entries[i].extension[k] != ' ') is_dot_or_dotdot = false;
+                if (str_cmp(sub_entries[i].filename, ".")) {
+                    continue;
                 }
-                if (!is_dot_or_dotdot && sub_entries[i].filename[0] == '.' && sub_entries[i].filename[1] == '.' && sub_entries[i].filename[2] == ' ') {
-                    is_dot_or_dotdot = true; // Matches ".."
-                    for(int k=3; k<8; ++k) if(sub_entries[i].filename[k] != ' ') is_dot_or_dotdot = false;
-                    for(int k=0; k<3; ++k) if(sub_entries[i].extension[k] != ' ') is_dot_or_dotdot = false;
+                if (str_cmp(sub_entries[i].filename, "..")) {
+                    continue;
                 }
 
-                if (!is_dot_or_dotdot) {
-                    is_empty = false;
-                    goto end_emptiness_check;
-                }
+                is_empty = false;
+                goto end_emptiness_check;
             }
         }
         cluster_to_scan = _get_next_cluster(cluster_to_scan);
@@ -1004,9 +1013,9 @@ static u16_t _create_fat_time() {
 
 // Convert 8.3 filename to FAT format 
 static void _filename_to_fat83(const char *filename, u8_t *name, u8_t *ext) {
-    // Initialize with spaces
-    for (int i = 0; i < 8; i++) name[i] = ' ';
-    for (int i = 0; i < 3; i++) ext[i] = ' ';
+    // Initialize with zeros
+    for (int i = 0; i < 8; i++) name[i] = '\0';
+    for (int i = 0; i < 3; i++) ext[i] = '\0';
     
     // Filter invalid characters and convert to uppercase
     int name_idx = 0;

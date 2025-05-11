@@ -40,7 +40,7 @@ void main() {
 
     // test_ata();
 
-    test_fat16();
+    // test_fat16();
 
    // enabling interrupts
    isr_install();

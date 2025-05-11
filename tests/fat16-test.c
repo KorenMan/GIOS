@@ -346,7 +346,6 @@ bool test_delete_directory() {
     if (!fat16_create_directory(parent_dir)) {
         return false;
     }
-    
     if (!fat16_change_directory(parent_dir)) {
         return false;
     }
@@ -368,17 +367,15 @@ bool test_delete_directory() {
     if (!fat16_change_directory(parent_dir)) {
         return false;
     }
-    fat16_list_files();
     if (!fat16_delete_directory(child_dir)) {
-        vga_print("here"); 
         return false;
     }
     
-    if (!fat16_change_directory(child_dir)) {
+    if (fat16_change_directory(child_dir)) {
         return false;
     }
-
- 
+    
+    
     if (!fat16_change_directory("..")) {
         return false;
     }
@@ -386,6 +383,7 @@ bool test_delete_directory() {
     if (!fat16_delete_directory(parent_dir)) {
         return false;
     }
+    
     return true;
 }
 
@@ -435,7 +433,7 @@ bool test_file_rename() {
 bool test_multiple_files() {
     const char *base_name = "FILE";
     char filename[FILENAME_MAX_LENGTH];
-    const char *test_content = "Test content";
+    const char *test_content = "abcd";
     bool all_succeeded = true;
     
     // Create 10 files
