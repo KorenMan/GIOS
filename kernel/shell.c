@@ -20,7 +20,12 @@ void shell_cmd(char *input) {
         vga_print("read      - Read content from a file\n");
         vga_print("delete    - Delete a file\n");
         vga_print("rename    - Rename a file\n");
+        vga_print("mkdir     - Create a new directory\n");
+        vga_print("cd        - Change current directory\n");
+        vga_print("pwd       - Print current working directory\n");
+        vga_print("rmdir     - Remove a directory\n");
         vga_print("color     - Change the shell color\n");
+        vga_print("\n");
     } else if (str_cmp(cmd, "clear")) {
         vga_clear_screen();
     } else if (str_cmp(cmd, "echo")) {
@@ -34,6 +39,7 @@ void shell_cmd(char *input) {
         } else {
             vga_print("ECHO is on.");
         }
+        vga_print("\n");
         vga_print("\n");
     } else if (str_cmp(cmd, "ls")) {
         vga_print("\n");
@@ -53,8 +59,9 @@ void shell_cmd(char *input) {
             } else {
                 vga_print("Problem creating file");
             }
-            vga_print("\n");
         }
+        vga_print("\n");
+        vga_print("\n");
     } else if (str_cmp(cmd, "write")) {
         vga_print("\n");
         if (arg1[0] == '\0') {
@@ -78,10 +85,11 @@ void shell_cmd(char *input) {
             }
         }
         vga_print("\n");
+        vga_print("\n");
     } else if (str_cmp(cmd, "read")) {
         vga_print("\n");
         if (arg1[0] == '\0') {
-            vga_print("Usage: read <filename>\n");
+            vga_print("Usage: read <filename>");
         } else {
             file_t file = fat16_open(arg1);
             if (file.is_open) {
@@ -97,10 +105,11 @@ void shell_cmd(char *input) {
             }
         }
         vga_print("\n");
+        vga_print("\n");
     } else if (str_cmp(cmd, "delete")) {
         vga_print("\n");
         if (arg1[0] == '\0') {
-            vga_print("Usage: delete <filename>\n");
+            vga_print("Usage: delete <filename>");
         } else {
             if (fat16_delete(arg1)) {
                 vga_print("File deleted successfully");
@@ -109,10 +118,11 @@ void shell_cmd(char *input) {
             }
         }
         vga_print("\n");
+        vga_print("\n");
     } else if (str_cmp(cmd, "rename")) {
         vga_print("\n");
         if (arg1[0] == '\0' || arg2[0] == '\0') {
-            vga_print("Usage: rename <old_name> <new_name>\n");
+            vga_print("Usage: rename <old_name> <new_name>");
         } else {
             if (fat16_rename(arg1, arg2)) {
                 vga_print("File renamed successfully");
@@ -121,10 +131,58 @@ void shell_cmd(char *input) {
             }
         }
         vga_print("\n");
+        vga_print("\n");
+    } else if (str_cmp(cmd, "mkdir")) {
+        vga_print("\n");
+        if (arg1[0] == '\0') {
+            vga_print("Usage: mkdir <directory_name>");
+        } else {
+            if (fat16_create_directory(arg1)) {
+                vga_print("Directory created successfully");
+            } else {
+                vga_print("Problem creating directory");
+            }
+        }
+        vga_print("\n");
+        vga_print("\n");
+    } else if (str_cmp(cmd, "cd")) {
+        vga_print("\n");
+        if (arg1[0] == '\0') {
+            vga_print("Usage: cd <directory_path>");
+        } else {
+            if (fat16_change_directory(arg1)) {
+                vga_print("Changed directory to: ");
+                vga_print(arg1);
+            } else {
+                vga_print("Directory not found or invalid path");
+            }
+        }
+        vga_print("\n");
+        vga_print("\n");
+    } else if (str_cmp(cmd, "pwd")) {
+        vga_print("\n");
+        char* current_path = fat16_get_path();
+        vga_print("Current directory: ");
+        vga_print(current_path);
+        vga_print("\n");
+        vga_print("\n");
+    } else if (str_cmp(cmd, "rmdir")) {
+        vga_print("\n");
+        if (arg1[0] == '\0') {
+            vga_print("Usage: rmdir <directory_name>");
+        } else {
+            if (fat16_delete_directory(arg1)) {
+                vga_print("Directory deleted successfully");
+            } else {
+                vga_print("Problem deleting directory");
+            }
+        }
+        vga_print("\n");
+        vga_print("\n");
     } else if (str_cmp(cmd, "color")) {
         vga_print("\n");
         if (str_len(arg1) > 2) {
-            vga_print("Usage: color <byte in hex>\n");
+            vga_print("Usage: color <byte in hex>");
         } else {
             int num = str_hex_to_num(arg1);
             if (arg1[0] == '\0') {
@@ -136,12 +194,16 @@ void shell_cmd(char *input) {
             }
         }
         vga_print("\n");
+        vga_print("\n");
     } else {
         vga_print("\n");
         vga_print("Command: '");
         vga_print(cmd);
         vga_print("' not found\n");
+        vga_print("\n");
     }
    
-    vga_print("GIOS:/$ ");
+    vga_print("GIOS:");
+    vga_print(fat16_get_path());
+    vga_print("$ ");
 }
